@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>USDT/USD Live Dashboard</title>
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { margin-bottom: 5px; }
+    .price { font-size: 2rem; margin-top: 10px; }
+    .small { color: #94a3b8; }
+    .up { color: #22c55e; }
+    .down { color: #ef4444; }
+    canvas {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 600px;
+      height: 300px;
+      background: #111827;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>USDT/USD Live Dashboard</h1>
+<div class="small">Updates every 10 seconds</div>
+
+<div class="price" id="price">Loading...</div>
+<div id="change" class="small"></div>
+
+<canvas id="chart"></canvas>
+
+<script>
+let history = [];
+
+async function fetchPrice() {
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd&include_24hr_change=true");
+    const data = await res.json();
+
+    const price = data.tether.usd;
+    const change = data.tether.usd_24h_change;
+
+    document.getElementById("price").innerText = "$" + price.toFixed(4);
+
+    const changeEl = document.getElementById("change");
+    changeEl.innerText = "24h: " + change.toFixed(3) + "%";
+    changeEl.className = change >= 0 ? "small up" : "small down";
+
+    const now = new Date();
+    history.push({ time: now, price: price });
+
+    if (history.length > 100) history.shift();
+
+    drawChart();
+
+  } catch (err) {
+    document.getElementById("price").innerText = "Error loading data";
+  }
+}
+
+function drawChart() {
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+
+  if (history.length < 2) return;
+
+  const prices = history.map(x => x.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+
+  ctx.strokeStyle = "#38bdf8";
+  ctx.beginPath();
+
+  history.forEach((p, i) => {
+    const x = i * (w / history.length);
+    const y = h - ((p.price - min) / (max - min)) * h;
+
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+
+  ctx.stroke();
+}
+
+fetchPrice();
+setInterval(fetchPrice, 10000);
+</script>
+
+</body>
+</html>
