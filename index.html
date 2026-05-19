@@ -1,102 +1,595 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>USDT/USD Live Dashboard</title>
   <style>
-    body {
-      font-family: Arial;
-      background: #0f172a;
-      color: white;
-      margin: 0;
-      padding: 20px;
+    :root {
+      --bg: #0f172a;
+      --bg2: #020617;
+      --card: rgba(17,24,39,0.78);
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --accent: #22c55e;
+      --accent2: #38bdf8;
+      --danger: #ef4444;
+      --border: rgba(255,255,255,0.08);
     }
-    h1 { margin-bottom: 5px; }
-    .price { font-size: 2rem; margin-top: 10px; }
-    .small { color: #94a3b8; }
-    .up { color: #22c55e; }
-    .down { color: #ef4444; }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 1150px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 22px;
+      flex-wrap: wrap;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 2rem;
+      letter-spacing: 0.2px;
+    }
+
+    .title p {
+      margin: 6px 0 0;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      backdrop-filter: blur(8px);
+    }
+
+    .kpi {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .value {
+      font-size: 1.7rem;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 6px;
+    }
+
+    .delta.up {
+      color: var(--accent);
+    }
+
+    .delta.down {
+      color: var(--danger);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+
     canvas {
-      margin-top: 20px;
       width: 100%;
-      max-width: 600px;
-      height: 300px;
-      background: #111827;
+      height: 360px;
+      display: block;
+      background: rgba(255,255,255,0.02);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse 1.5s infinite;
+    }
+
+    .status.error .dot {
+      background: var(--danger);
+      box-shadow: 0 0 12px var(--danger);
+    }
+
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    select, button {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+
+    button:hover, select:hover {
+      background: rgba(255,255,255,0.08);
+    }
+
+    .footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 900px) {
+      .kpi {
+        grid-template-columns: 1fr;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
-
 <body>
+  <div class="wrap">
+    <div class="header">
+      <div class="title">
+        <h1>USDT/USD Live Dashboard</h1>
+        <p>Tracks Tether price in USD with automatic refresh and a rolling intraday chart.</p>
+      </div>
 
-<h1>USDT/USD Live Dashboard</h1>
-<div class="small">Updates every 10 seconds</div>
+      <div class="controls">
+        <div id="status" class="badge status">
+          <span class="dot"></span>
+          <span id="statusText">Connecting…</span>
+        </div>
 
-<div class="price" id="price">Loading...</div>
-<div id="change" class="small"></div>
+        <label class="badge">
+          Refresh
+          <select id="refreshRate">
+            <option value="5000">5 sec</option>
+            <option value="10000" selected>10 sec</option>
+            <option value="30000">30 sec</option>
+            <option value="60000">60 sec</option>
+          </select>
+        </label>
 
-<canvas id="chart"></canvas>
+        <button id="shareBtn">Copy share message</button>
+      </div>
+    </div>
 
-<script>
-let history = [];
+    <div class="kpi">
+      <div class="metric card">
+        <div class="label">Current USDT/USD</div>
+        <div id="price" class="value">—</div>
+        <div id="priceDelta" class="small">Waiting for data…</div>
+      </div>
 
-async function fetchPrice() {
-  try {
-    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd&include_24hr_change=true");
-    const data = await res.json();
+      <div class="metric card">
+        <div class="label">24h Change</div>
+        <div id="change24" class="value">—</div>
+        <div class="small">CoinGecko market data</div>
+      </div>
 
-    const price = data.tether.usd;
-    const change = data.tether.usd_24h_change;
+      <div class="metric card">
+        <div class="label">Last Updated</div>
+        <div id="lastUpdated" class="value" style="font-size:1.15rem;">—</div>
+        <div id="sourceUsed" class="small">Source: —</div>
+      </div>
 
-    document.getElementById("price").innerText = "$" + price.toFixed(4);
+      <div class="metric card">
+        <div class="label">Observations</div>
+        <div id="obsCount" class="value">0</div>
+        <div class="small">Stored locally in browser</div>
+      </div>
+    </div>
 
-    const changeEl = document.getElementById("change");
-    changeEl.innerText = "24h: " + change.toFixed(3) + "%";
-    changeEl.className = change >= 0 ? "small up" : "small down";
+    <div class="grid">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;">Rolling Price Chart</div>
+            <div class="small">Last 200 observations</div>
+          </div>
+        </div>
+        <canvas id="chart" width="900" height="360"></canvas>
+      </div>
 
-    const now = new Date();
-    history.push({ time: now, price: price });
+      <div class="card">
+        <div style="font-weight:700;font-size:1.1rem;margin-bottom:10px;">Recent Ticks</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Price</th>
+              <th>Move</th>
+            </tr>
+          </thead>
+          <tbody id="ticksBody"></tbody>
+        </table>
+      </div>
+    </div>
 
-    if (history.length > 100) history.shift();
+    <div class="footer">
+      <div><strong>Note:</strong> If CoinGecko fails, the dashboard falls back to Kraken.</div>
+      <div><strong>Tip:</strong> This chart improves over time as more observations are collected.</div>
+    </div>
+  </div>
 
-    drawChart();
+  <script>
+    const STORAGE_KEY = "usdt-usd-dashboard-history-v2";
+    let historyData = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    let timer = null;
 
-  } catch (err) {
-    document.getElementById("price").innerText = "Error loading data";
-  }
-}
+    const els = {
+      price: document.getElementById("price"),
+      priceDelta: document.getElementById("priceDelta"),
+      change24: document.getElementById("change24"),
+      lastUpdated: document.getElementById("lastUpdated"),
+      sourceUsed: document.getElementById("sourceUsed"),
+      obsCount: document.getElementById("obsCount"),
+      ticksBody: document.getElementById("ticksBody"),
+      status: document.getElementById("status"),
+      statusText: document.getElementById("statusText"),
+      refreshRate: document.getElementById("refreshRate"),
+      shareBtn: document.getElementById("shareBtn"),
+      chart: document.getElementById("chart")
+    };
 
-function drawChart() {
-  const canvas = document.getElementById("chart");
-  const ctx = canvas.getContext("2d");
+    function fmtPrice(v) {
+      return v == null ? "—" : "$" + Number(v).toFixed(4);
+    }
 
-  const w = canvas.width;
-  const h = canvas.height;
+    function fmtPct(v) {
+      if (v == null || Number.isNaN(v)) return "—";
+      const sign = v >= 0 ? "+" : "";
+      return sign + Number(v).toFixed(3) + "%";
+    }
 
-  ctx.clearRect(0, 0, w, h);
+    function fmtTime(ts) {
+      const d = new Date(ts);
+      return d.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
 
-  if (history.length < 2) return;
+    async function fetchCoinGecko() {
+      const url = "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("CoinGecko failed: " + res.status);
 
-  const prices = history.map(x => x.price);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
+      const data = await res.json();
+      if (!data.tether || data.tether.usd == null) {
+        throw new Error("Invalid CoinGecko response");
+      }
 
-  ctx.strokeStyle = "#38bdf8";
-  ctx.beginPath();
+      return {
+        source: "CoinGecko",
+        price: data.tether.usd,
+        change24: data.tether.usd_24h_change,
+        ts: (data.tether.last_updated_at || Math.floor(Date.now() / 1000)) * 1000
+      };
+    }
 
-  history.forEach((p, i) => {
-    const x = i * (w / history.length);
-    const y = h - ((p.price - min) / (max - min)) * h;
+    async function fetchKraken() {
+      const url = "https://api.kraken.com/0/public/Ticker?pair=USDTUSD";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Kraken failed: " + res.status);
 
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
+      const data = await res.json();
+      if (!data.result) throw new Error("Invalid Kraken response");
 
-  ctx.stroke();
-}
+      const key = Object.keys(data.result)[0];
+      const last = Number(data.result[key].c[0]);
 
-fetchPrice();
-setInterval(fetchPrice, 10000);
-</script>
+      return {
+        source: "Kraken",
+        price: last,
+        change24: null,
+        ts: Date.now()
+      };
+    }
 
+    async function getPrice() {
+      try {
+        return await fetchCoinGecko();
+      } catch (e1) {
+        console.warn("CoinGecko failed, trying Kraken:", e1);
+        return await fetchKraken();
+      }
+    }
+
+    function setStatus(text, ok = true) {
+      els.statusText.textContent = text;
+      els.status.classList.toggle("error", !ok);
+    }
+
+    function renderTicks() {
+      const recent = historyData.slice(-10).reverse();
+      const rows = recent.map((point, idx) => {
+        const realIdx = historyData.length - 1 - idx;
+        const prev = historyData[realIdx - 1];
+        let move = "—";
+
+        if (prev) {
+          const diff = point.price - prev.price;
+          move = `<span class="${diff >= 0 ? "delta up" : "delta down"}">${diff >= 0 ? "+" : ""}${diff.toFixed(4)}</span>`;
+        }
+
+        return `
+          <tr>
+            <td>${fmtTime(point.ts)}</td>
+            <td>${fmtPrice(point.price)}</td>
+            <td>${move}</td>
+          </tr>
+        `;
+      }).join("");
+
+      els.ticksBody.innerHTML = rows || `<tr><td colspan="3" class="small">No ticks yet</td></tr>`;
+    }
+
+    function drawChart() {
+      const canvas = els.chart;
+      const ctx = canvas.getContext("2d");
+
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = rect.width * dpr;
+      canvas.height = 360 * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+
+      const width = rect.width;
+      const height = 360;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const pad = { top: 20, right: 16, bottom: 28, left: 60 };
+      const points = historyData.slice(-200);
+
+      if (points.length < 2) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "14px Arial";
+        ctx.fillText("Waiting for enough data to draw chart…", 20, 30);
+        return;
+      }
+
+      let min = Math.min(...points.map(p => p.price));
+      let max = Math.max(...points.map(p => p.price));
+
+      if (min === max) {
+        min -= 0.0005;
+        max += 0.0005;
+      }
+
+      const yPad = (max - min) * 0.15;
+      min -= yPad;
+      max += yPad;
+
+      // background
+      ctx.fillStyle = "rgba(255,255,255,0.02)";
+      ctx.fillRect(0, 0, width, height);
+
+      // gridlines
+      ctx.strokeStyle = "rgba(148,163,184,0.18)";
+      ctx.lineWidth = 1;
+      ctx.font = "12px Arial";
+      ctx.fillStyle = "#94a3b8";
+
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + ((height - pad.top - pad.bottom) / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(width - pad.right, y);
+        ctx.stroke();
+
+        const price = max - ((max - min) / 4) * i;
+        ctx.fillText("$" + price.toFixed(4), 8, y + 4);
+      }
+
+      // line
+      const xStep = (width - pad.left - pad.right) / (points.length - 1);
+
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = pad.left + i * xStep;
+        const y = pad.top + ((max - p.price) / (max - min)) * (height - pad.top - pad.bottom);
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // fill below line
+      ctx.lineTo(width - pad.right, height - pad.bottom);
+      ctx.lineTo(pad.left, height - pad.bottom);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(56,189,248,0.08)";
+      ctx.fill();
+
+      // redraw line on top
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = pad.left + i * xStep;
+        const y = pad.top + ((max - p.price) / (max - min)) * (height - pad.top - pad.bottom);
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // latest point
+      const lp = points[points.length - 1];
+      const lx = pad.left + (points.length - 1) * xStep;
+      const ly = pad.top + ((max - lp.price) / (max - min)) * (height - pad.top - pad.bottom);
+
+      ctx.beginPath();
+      ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#22c55e";
+      ctx.fill();
+
+      // x labels
+      ctx.fillStyle = "#94a3b8";
+      ctx.textAlign = "left";
+      ctx.fillText(fmtTime(points[0].ts), pad.left, height - 8);
+      ctx.textAlign = "right";
+      ctx.fillText(fmtTime(points[points.length - 1].ts), width - pad.right, height - 8);
+    }
+
+    function updateUI(point) {
+      const prev = historyData.length > 1 ? historyData[historyData.length - 2].price : null;
+      const diff = prev == null ? null : point.price - prev;
+      const diffPct = prev == null ? null : (diff / prev) * 100;
+
+      els.price.textContent = fmtPrice(point.price);
+
+      const deltaText = prev == null
+        ? "First observation loaded"
+        : `${diff >= 0 ? "+" : ""}${diff.toFixed(4)} (${fmtPct(diffPct)}) vs previous tick`;
+
+      els.priceDelta.textContent = deltaText;
+      els.priceDelta.className = "small " + (diff == null ? "" : (diff >= 0 ? "delta up" : "delta down"));
+
+      els.change24.textContent = fmtPct(point.change24);
+      els.change24.className = "value " + (point.change24 == null ? "" : (point.change24 >= 0 ? "delta up" : "delta down"));
+
+      els.lastUpdated.textContent = new Date(point.ts).toLocaleString();
+      els.sourceUsed.textContent = "Source: " + point.source;
+      els.obsCount.textContent = historyData.length;
+
+      renderTicks();
+      drawChart();
+    }
+
+    async function tick() {
+      setStatus("Refreshing…", true);
+
+      try {
+        const point = await getPrice();
+
+        historyData.push(point);
+        if (historyData.length > 200) historyData = historyData.slice(-200);
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(historyData));
+        updateUI(point);
+        setStatus("Live", true);
+      } catch (err) {
+        console.error(err);
+        setStatus("Data source unavailable", false);
+      }
+    }
+
+    function startTimer() {
+      if (timer) clearInterval(timer);
+      const ms = Number(els.refreshRate.value);
+      timer = setInterval(tick, ms);
+    }
+
+    els.refreshRate.addEventListener("change", startTimer);
+
+    els.shareBtn.addEventListener("click", async () => {
+      const msg = "USDT/USD live dashboard: " + window.location.href;
+      try {
+        await navigator.clipboard.writeText(msg);
+        els.shareBtn.textContent = "Copied";
+        setTimeout(() => {
+          els.shareBtn.textContent = "Copy share message";
+        }, 1500);
+      } catch {
+        alert(msg);
+      }
+    });
+
+    window.addEventListener("resize", drawChart);
+
+    if (historyData.length) {
+      updateUI(historyData[historyData.length - 1]);
+    }
+
+    tick();
+    startTimer();
+  </script>
 </body>
 </html>
