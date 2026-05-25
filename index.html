@@ -1,150 +1,1042 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Stablecoin Dashboard</title>
+  <meta charset="UTF-8" />
+  <meta http-equiv="cache-control" content="no-cache" />
+  <meta http-equiv="expires" content="0" />
+  <meta http-equiv="pragma" content="no-cache" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypto Morning Dashboard</title>
 
-<style>
-  body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background:#0f172a;
-    color:#e5e7eb;
-    padding:20px;
-  }
+  <style>
+    :root {
+      --bg: #0f172a;
+      --bg2: #020617;
+      --card: rgba(17, 24, 39, 0.82);
+      --card2: rgba(255,255,255,0.03);
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --accent: #22c55e;
+      --accent2: #38bdf8;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
 
-  h1 { margin-bottom:10px; }
+    * { box-sizing: border-box; }
 
-  .grid {
-    display:grid;
-    grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
-    gap:15px;
-  }
+    body {
+      margin: 0;
+      font-family: Inter, Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
 
-  .card {
-    background:#111827;
-    border-radius:12px;
-    padding:15px;
-    border:1px solid #1f2937;
-  }
+    .wrap {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
 
-  .label {
-    color:#94a3b8;
-    font-size:0.9rem;
-  }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
 
-  .value {
-    font-size:1.6rem;
-    margin-top:6px;
-    font-weight:bold;
-  }
+    .title h1 {
+      margin: 0;
+      font-size: 2rem;
+      letter-spacing: 0.2px;
+    }
 
-  .up { color:#22c55e; }
-  .down { color:#ef4444; }
+    .title p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
 
-  select {
-    margin-top:15px;
-    padding:8px;
-    background:#111827;
-    color:#e5e7eb;
-    border:1px solid #1f2937;
-  }
-</style>
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse 1.5s infinite;
+    }
+
+    .status.error .dot {
+      background: var(--danger);
+      box-shadow: 0 0 12px var(--danger);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    select, button, a.link-btn {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 0.95rem;
+    }
+
+    button:hover, select:hover, a.link-btn:hover {
+      background: rgba(255,255,255,0.08);
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+
+    .hero {
+      margin-bottom: 16px;
+      padding: 18px 20px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .hero-status {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .hero-label {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .hero-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .hero-sub {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .hero-kpi {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+    }
+
+    .hero-kpi .value {
+      font-size: 1.45rem;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .grid-three {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      margin: 0 0 14px;
+      font-size: 1.08rem;
+      font-weight: 700;
+    }
+
+    .subgrid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .subgrid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+    }
+
+    .value {
+      font-size: 1.55rem;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 8px;
+      line-height: 1.45;
+    }
+
+    .tiny {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 6px;
+    }
+
+    .delta-up { color: var(--accent); }
+    .delta-down { color: var(--danger); }
+    .delta-warn { color: var(--warn); }
+
+    .status-stable { color: var(--accent); }
+    .status-watch { color: var(--warn); }
+    .status-stress { color: var(--danger); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .exchange-summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .headline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .headline-item {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+
+    .headline-item a {
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .headline-item a:hover {
+      text-decoration: underline;
+    }
+
+    .headline-source {
+      color: var(--muted);
+      font-size: 0.84rem;
+      margin-top: 6px;
+    }
+
+    .footer {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.6;
+    }
+
+    .mono {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+    }
+
+    @media (max-width: 1100px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .grid-two,
+      .grid-three,
+      .subgrid-3,
+      .subgrid-2,
+      .exchange-summary {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
-
 <body>
+  <div class="wrap">
 
-<h1>Stablecoin + BTC Dashboard</h1>
+    <div class="header">
+      <div class="title">
+        <h1>Crypto Morning Dashboard</h1>
+        <p>
+          Designed as a replacement for the daily crypto email: stablecoins, BTC, exchange pricing, supply,
+          key links and morning context in one screen.
+        </p>
+      </div>
 
-<div class="grid">
-  <div class="card">
-    <div class="label">USDT/USD</div>
-    <div id="usdt" class="value">—</div>
+      <div class="controls">
+        <div id="status" class="badge status">
+          <span class="dot"></span>
+          <span id="statusText">Connecting…</span>
+        </div>
+
+        <label class="badge">
+          Refresh
+          <select id="refreshRate">
+            <option value="10000">10 sec</option>
+            <option value="30000" selected>30 sec</option>
+            <option value="60000">60 sec</option>
+            <option value="300000">5 min</option>
+          </select>
+        </label>
+
+        <button id="shareBtn">Copy share link</button>
+      </div>
+    </div>
+
+    <div class="card hero">
+      <div class="hero-status">
+        <div class="hero-label">Morning market status</div>
+        <div id="marketStatus" class="hero-value">Loading…</div>
+        <div id="marketSummary" class="hero-sub">
+          Pulling stablecoin, BTC and exchange data…
+        </div>
+      </div>
+
+      <div class="hero-kpi">
+        <div class="hero-label">Last refreshed</div>
+        <div id="lastUpdated" class="value mono" style="font-size:1.15rem;">—</div>
+        <div class="small">Browser time</div>
+      </div>
+
+      <div class="hero-kpi">
+        <div class="hero-label">Tracked sources</div>
+        <div class="value" style="font-size:1.15rem;">CoinGecko + exchanges</div>
+        <div class="small">Public endpoints + user-edited context panel</div>
+      </div>
+    </div>
+
+    <div class="grid-two">
+      <div class="card">
+        <h2 class="section-title">Stablecoins</h2>
+        <div class="subgrid-3">
+          <div class="metric">
+            <div class="label">USDT/USD</div>
+            <div id="usdtPrice" class="value mono">—</div>
+            <div id="usdtDev" class="small">Deviation: —</div>
+            <div class="tiny">Source: CoinGecko</div>
+          </div>
+
+          <div class="metric">
+            <div class="label">USDC/USD</div>
+            <div id="usdcPrice" class="value mono">—</div>
+            <div id="usdcDev" class="small">Deviation: —</div>
+            <div class="tiny">Source: CoinGecko</div>
+          </div>
+
+          <div class="metric">
+            <div class="label">USDC/USDT (Kraken)</div>
+            <div id="usdcUsdtPrice" class="value mono">—</div>
+            <div id="usdcUsdtDev" class="small">Spread vs parity: —</div>
+            <div class="tiny">Source: Kraken</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Bitcoin</h2>
+        <div class="subgrid-2">
+          <div class="metric">
+            <div class="label">BTC/USD</div>
+            <div id="btcPrice" class="value mono">—</div>
+            <div class="tiny">Source: CoinGecko</div>
+          </div>
+
+          <div class="metric">
+            <div class="label">24h change</div>
+            <div id="btcChange24" class="value mono">—</div>
+            <div id="btcChangeText" class="small">Waiting for data…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-two">
+      <div class="card">
+        <h2 class="section-title">Stablecoin circulating supply</h2>
+        <div class="subgrid-2">
+          <div class="metric">
+            <div class="label">USDT circulating supply</div>
+            <div id="usdtSupply" class="value mono">—</div>
+            <div id="usdtSupplyDelta1d" class="small">1d: —</div>
+            <div id="usdtSupplyDelta7d" class="small">7d: —</div>
+          </div>
+
+          <div class="metric">
+            <div class="label">USDC circulating supply</div>
+            <div id="usdcSupply" class="value mono">—</div>
+            <div id="usdcSupplyDelta1d" class="small">1d: —</div>
+            <div id="usdcSupplyDelta7d" class="small">7d: —</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Reference links</h2>
+        <div class="subgrid-2">
+          <a class="link-btn" href="https://tether.to/en/transparency/" target="_blank" rel="noopener noreferrer">Tether transparency</a>
+          <a class="link-btn" href="https://coinmarketcap.com/currencies/tether/" target="_blank" rel="noopener noreferrer">USDT page</a>
+          <a class="link-btn" href="https://coinmarketcap.com/currencies/usd-coin/" target="_blank" rel="noopener noreferrer">USDC page</a>
+          <a class="link-btn" href="https://pro.kraken.com/app/trade/usdc-usdt" target="_blank" rel="noopener noreferrer">Kraken USDC/USDT</a>
+          <a class="link-btn" href="https://coinalyze.net/bitcoin/usdt/price-live/?market_type=spot" target="_blank" rel="noopener noreferrer">BTC/USDT market view</a>
+          <a class="link-btn" href="https://coinmarketcap.com/rankings/exchanges/" target="_blank" rel="noopener noreferrer">Exchange volumes</a>
+        </div>
+        <div class="footer" style="margin-top:12px;">
+          The supply deltas use browser-stored daily snapshots. They will become more useful after a few days of running this page.
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-two">
+      <div class="card">
+        <h2 class="section-title">BTC/USDT by exchange</h2>
+
+        <div class="exchange-summary">
+          <div class="metric">
+            <div class="label">Average</div>
+            <div id="exchangeAvg" class="value mono">—</div>
+          </div>
+          <div class="metric">
+            <div class="label">Lowest</div>
+            <div id="exchangeLow" class="value mono">—</div>
+          </div>
+          <div class="metric">
+            <div class="label">Spread (max-min)</div>
+            <div id="exchangeSpread" class="value mono">—</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Exchange</th>
+              <th>BTC/USDT</th>
+              <th>Vs average</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="exchangeTableBody">
+            <tr><td colspan="4" class="small">Loading exchange prices…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Morning context / news</h2>
+        <ul id="newsList" class="headline-list"></ul>
+        <div class="footer">
+          Edit the <strong>CONFIG.newsItems</strong> block in the code if you want this panel to mirror the daily email headlines.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div><strong>Notes:</strong> this page is designed to replace the daily email structure with a single-screen morning control panel.</div>
+      <div>Stablecoin supply history is stored locally in this browser so 1d / 7d comparisons improve as the page is used over time.</div>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="label">USDC/USD</div>
-    <div id="usdc" class="value">—</div>
-  </div>
+  <script>
+    const CONFIG = {
+      thresholds: {
+        warnBps: 10,     // 0.10%
+        stressBps: 20,   // 0.20%
+        exchangeWarnUsd: 40,
+        exchangeStressUsd: 100
+      },
+      newsItems: [
+        {
+          headline: "Replace with your top headline 1",
+          source: "Edit in CONFIG.newsItems",
+          url: "#"
+        },
+        {
+          headline: "Replace with your top headline 2",
+          source: "Edit in CONFIG.newsItems",
+          url: "#"
+        },
+        {
+          headline: "Replace with your top headline 3",
+          source: "Edit in CONFIG.newsItems",
+          url: "#"
+        }
+      ]
+    };
 
-  <div class="card">
-    <div class="label">USDT Supply</div>
-    <div id="usdtSupply" class="value">—</div>
-  </div>
+    const DAILY_HISTORY_KEY = "crypto-morning-dashboard-history-v2";
+    let timer = null;
 
-  <div class="card">
-    <div class="label">USDC Supply</div>
-    <div id="usdcSupply" class="value">—</div>
-  </div>
+    const els = {
+      status: document.getElementById("status"),
+      statusText: document.getElementById("statusText"),
+      refreshRate: document.getElementById("refreshRate"),
+      shareBtn: document.getElementById("shareBtn"),
 
-  <div class="card">
-    <div class="label">BTC/USD</div>
-    <div id="btc" class="value">—</div>
-    <div id="btcChange"></div>
-  </div>
-</div>
+      marketStatus: document.getElementById("marketStatus"),
+      marketSummary: document.getElementById("marketSummary"),
+      lastUpdated: document.getElementById("lastUpdated"),
 
-<select id="refresh">
-  <option value="5000">5 sec</option>
-  <option value="10000" selected>10 sec</option>
-  <option value="30000">30 sec</option>
-</select>
+      usdtPrice: document.getElementById("usdtPrice"),
+      usdcPrice: document.getElementById("usdcPrice"),
+      usdcUsdtPrice: document.getElementById("usdcUsdtPrice"),
 
-<script>
-let timer;
+      usdtDev: document.getElementById("usdtDev"),
+      usdcDev: document.getElementById("usdcDev"),
+      usdcUsdtDev: document.getElementById("usdcUsdtDev"),
 
-function fmtNum(v) {
-  if (v == null) return "—";
-  return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
-}
+      usdtSupply: document.getElementById("usdtSupply"),
+      usdcSupply: document.getElementById("usdcSupply"),
+      usdtSupplyDelta1d: document.getElementById("usdtSupplyDelta1d"),
+      usdtSupplyDelta7d: document.getElementById("usdtSupplyDelta7d"),
+      usdcSupplyDelta1d: document.getElementById("usdcSupplyDelta1d"),
+      usdcSupplyDelta7d: document.getElementById("usdcSupplyDelta7d"),
 
-function fmtBTC(v) {
-  return "$" + fmtNum(v);
-}
+      btcPrice: document.getElementById("btcPrice"),
+      btcChange24: document.getElementById("btcChange24"),
+      btcChangeText: document.getElementById("btcChangeText"),
 
-function fmtSupply(v) {
-  return (v / 1e9).toFixed(2) + "bn";
-}
+      exchangeAvg: document.getElementById("exchangeAvg"),
+      exchangeLow: document.getElementById("exchangeLow"),
+      exchangeSpread: document.getElementById("exchangeSpread"),
+      exchangeTableBody: document.getElementById("exchangeTableBody"),
 
-function fmtPct(v) {
-  const sign = v >= 0 ? "+" : "";
-  return sign + v.toFixed(2) + "%";
-}
+      newsList: document.getElementById("newsList")
+    };
 
-async function fetchData() {
-  const url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=tether,usd-coin,bitcoin";
-  const res = await fetch(url);
-  const data = await res.json();
+    function setStatus(text, ok = true) {
+      els.statusText.textContent = text;
+      els.status.classList.toggle("error", !ok);
+    }
 
-  const map = {};
-  data.forEach(c => map[c.id] = c);
+    function fmtPrice(v, dp = 4) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      return "$" + Number(v).toLocaleString(undefined, {
+        minimumFractionDigits: dp,
+        maximumFractionDigits: dp
+      });
+    }
 
-  document.getElementById("usdt").textContent = "$" + fmtNum(map["tether"].current_price);
-  document.getElementById("usdc").textContent = "$" + fmtNum(map["usd-coin"].current_price);
+    function fmtPlain(v, dp = 4) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      return Number(v).toLocaleString(undefined, {
+        minimumFractionDigits: dp,
+        maximumFractionDigits: dp
+      });
+    }
 
-  document.getElementById("usdtSupply").textContent = fmtSupply(map["tether"].circulating_supply);
-  document.getElementById("usdcSupply").textContent = fmtSupply(map["usd-coin"].circulating_supply);
+    function fmtPct(v, dp = 2) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      const num = Number(v);
+      const sign = num >= 0 ? "+" : "";
+      return sign + num.toFixed(dp) + "%";
+    }
 
-  document.getElementById("btc").textContent = fmtBTC(map["bitcoin"].current_price);
+    function fmtBpsFromParity(v) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      const bps = (Number(v) - 1) * 10000;
+      const sign = bps >= 0 ? "+" : "";
+      return sign + bps.toFixed(1) + " bps";
+    }
 
-  const change = map["bitcoin"].price_change_percentage_24h;
-  const el = document.getElementById("btcChange");
-  el.textContent = fmtPct(change);
-  el.className = change >= 0 ? "up" : "down";
-}
+    function fmtSupply(v) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      const n = Number(v);
+      if (n >= 1e9) return (n / 1e9).toFixed(2) + "bn";
+      if (n >= 1e6) return (n / 1e6).toFixed(2) + "m";
+      return n.toLocaleString();
+    }
 
-function start() {
-  if (timer) clearInterval(timer);
-  const ms = Number(document.getElementById("refresh").value);
-  timer = setInterval(fetchData, ms);
-}
+    function fmtSupplyDelta(v) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      const sign = v >= 0 ? "+" : "";
+      return sign + fmtSupply(Math.abs(v));
+    }
 
-document.getElementById("refresh").addEventListener("change", start);
+    function classForBps(absBps) {
+      if (absBps >= CONFIG.thresholds.stressBps) return "delta-down";
+      if (absBps >= CONFIG.thresholds.warnBps) return "delta-warn";
+      return "delta-up";
+    }
 
-fetchData();
-start();
-</script>
+    function classForSigned(v, warnThreshold = 0) {
+      if (v == null || Number.isNaN(Number(v))) return "";
+      if (Math.abs(v) <= warnThreshold) return "";
+      return v >= 0 ? "delta-up" : "delta-down";
+    }
 
+    function formatDateTime(ts) {
+      return new Date(ts).toLocaleString();
+    }
+
+    function loadHistory() {
+      try {
+        return JSON.parse(localStorage.getItem(DAILY_HISTORY_KEY) || "[]");
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistory(history) {
+      localStorage.setItem(DAILY_HISTORY_KEY, JSON.stringify(history));
+    }
+
+    function upsertTodaySnapshot(snapshot) {
+      const history = loadHistory();
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const existingIndex = history.findIndex(x => x.date === todayKey);
+
+      const clean = {
+        date: todayKey,
+        ts: Date.now(),
+        usdtSupply: snapshot.usdtSupply,
+        usdcSupply: snapshot.usdcSupply,
+        usdtPrice: snapshot.usdtPrice,
+        usdcPrice: snapshot.usdcPrice,
+        usdcUsdtPrice: snapshot.usdcUsdtPrice,
+        btcPrice: snapshot.btcPrice
+      };
+
+      if (existingIndex >= 0) history[existingIndex] = clean;
+      else history.push(clean);
+
+      history.sort((a, b) => a.date.localeCompare(b.date));
+      saveHistory(history);
+      return history;
+    }
+
+    function getPriorSnapshot(history, daysBackMin) {
+      if (!history.length) return null;
+      const now = new Date();
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - daysBackMin);
+
+      const eligible = history
+        .filter(x => new Date(x.date + "T00:00:00") <= cutoff)
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      return eligible[0] || null;
+    }
+
+    function renderNews() {
+      const items = CONFIG.newsItems || [];
+      els.newsList.innerHTML = items.map(item => `
+        <li class="headline-item">
+          <a href="${item.url || '#'}" target="_blank" rel="noopener noreferrer">${item.headline}</a>
+          <div class="headline-source">${item.source || ""}</div>
+        </li>
+      `).join("");
+    }
+
+    async function fetchCoinGeckoMarkets() {
+      const url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=tether,usd-coin,bitcoin";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("CoinGecko failed: " + res.status);
+      const data = await res.json();
+      const map = {};
+      data.forEach(c => map[c.id] = c);
+      return map;
+    }
+
+    async function fetchKrakenUsdcUsdt() {
+      const url = "https://api.kraken.com/0/public/Ticker?pair=USDCUSDT";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Kraken USDC/USDT failed: " + res.status);
+      const data = await res.json();
+      if (!data.result) throw new Error("Invalid Kraken USDC/USDT response");
+      const key = Object.keys(data.result)[0];
+      return Number(data.result[key].c[0]);
+    }
+
+    async function fetchExchangeQuotes() {
+      const requests = [
+        {
+          name: "Binance",
+          fetcher: async () => {
+            const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", { cache: "no-store" });
+            const j = await r.json();
+            return Number(j.price);
+          }
+        },
+        {
+          name: "OKX",
+          fetcher: async () => {
+            const r = await fetch("https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT", { cache: "no-store" });
+            const j = await r.json();
+            return Number(j.data[0].last);
+          }
+        },
+        {
+          name: "Kraken",
+          fetcher: async () => {
+            const r = await fetch("https://api.kraken.com/0/public/Ticker?pair=XBTUSDT", { cache: "no-store" });
+            const j = await r.json();
+            if (!j.result) throw new Error("Invalid Kraken BTC/USDT response");
+            const key = Object.keys(j.result)[0];
+            return Number(j.result[key].c[0]);
+          }
+        },
+        {
+          name: "Coinbase",
+          fetcher: async () => {
+            const r = await fetch("https://api.exchange.coinbase.com/products/BTC-USDT/ticker", { cache: "no-store" });
+            const j = await r.json();
+            return Number(j.price);
+          }
+        },
+        {
+          name: "Bybit",
+          fetcher: async () => {
+            const r = await fetch("https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT", { cache: "no-store" });
+            const j = await r.json();
+            return Number(j.result.list[0].lastPrice);
+          }
+        }
+      ];
+
+      const settled = await Promise.allSettled(
+        requests.map(async item => {
+          try {
+            const price = await item.fetcher();
+            return { name: item.name, price, ok: true };
+          } catch (err) {
+            return { name: item.name, price: null, ok: false, error: err?.message || "Unavailable" };
+          }
+        })
+      );
+
+      return settled.map(r => r.value);
+    }
+
+    function renderStablecoins(core, usdcUsdt) {
+      const usdt = core["tether"];
+      const usdc = core["usd-coin"];
+
+      const usdtBps = (usdt.current_price - 1) * 10000;
+      const usdcBps = (usdc.current_price - 1) * 10000;
+      const pairBps = usdcUsdt != null ? ((usdcUsdt - 1) * 10000) : null;
+
+      els.usdtPrice.textContent = fmtPrice(usdt.current_price, 4);
+      els.usdcPrice.textContent = fmtPrice(usdc.current_price, 4);
+      els.usdcUsdtPrice.textContent = usdcUsdt == null ? "—" : fmtPlain(usdcUsdt, 4);
+
+      els.usdtDev.textContent = "Deviation from $1: " + fmtBpsFromParity(usdt.current_price);
+      els.usdtDev.className = "small " + classForBps(Math.abs(usdtBps));
+
+      els.usdcDev.textContent = "Deviation from $1: " + fmtBpsFromParity(usdc.current_price);
+      els.usdcDev.className = "small " + classForBps(Math.abs(usdcBps));
+
+      els.usdcUsdtDev.textContent = "Spread vs parity: " + (pairBps == null ? "—" : (pairBps >= 0 ? "+" : "") + pairBps.toFixed(1) + " bps");
+      els.usdcUsdtDev.className = "small " + (pairBps == null ? "" : classForBps(Math.abs(pairBps)));
+
+      return {
+        usdtPrice: usdt.current_price,
+        usdcPrice: usdc.current_price,
+        usdcUsdtPrice: usdcUsdt,
+        usdtSupply: usdt.circulating_supply,
+        usdcSupply: usdc.circulating_supply
+      };
+    }
+
+    function renderSupply(snapshot, history) {
+      els.usdtSupply.textContent = fmtSupply(snapshot.usdtSupply);
+      els.usdcSupply.textContent = fmtSupply(snapshot.usdcSupply);
+
+      const prev1d = getPriorSnapshot(history, 1);
+      const prev7d = getPriorSnapshot(history, 7);
+
+      if (prev1d) {
+        const usdt1d = snapshot.usdtSupply - prev1d.usdtSupply;
+        const usdc1d = snapshot.usdcSupply - prev1d.usdcSupply;
+
+        els.usdtSupplyDelta1d.textContent = "1d: " + fmtSupplyDelta(usdt1d);
+        els.usdtSupplyDelta1d.className = "small " + classForSigned(usdt1d);
+
+        els.usdcSupplyDelta1d.textContent = "1d: " + fmtSupplyDelta(usdc1d);
+        els.usdcSupplyDelta1d.className = "small " + classForSigned(usdc1d);
+      } else {
+        els.usdtSupplyDelta1d.textContent = "1d: collecting history…";
+        els.usdcSupplyDelta1d.textContent = "1d: collecting history…";
+      }
+
+      if (prev7d) {
+        const usdt7d = snapshot.usdtSupply - prev7d.usdtSupply;
+        const usdc7d = snapshot.usdcSupply - prev7d.usdcSupply;
+
+        els.usdtSupplyDelta7d.textContent = "7d: " + fmtSupplyDelta(usdt7d);
+        els.usdtSupplyDelta7d.className = "small " + classForSigned(usdt7d);
+
+        els.usdcSupplyDelta7d.textContent = "7d: " + fmtSupplyDelta(usdc7d);
+        els.usdcSupplyDelta7d.className = "small " + classForSigned(usdc7d);
+      } else {
+        els.usdtSupplyDelta7d.textContent = "7d: collecting history…";
+        els.usdcSupplyDelta7d.textContent = "7d: collecting history…";
+      }
+    }
+
+    function renderBitcoin(core) {
+      const btc = core["bitcoin"];
+      els.btcPrice.textContent = fmtPrice(btc.current_price, 2);
+      els.btcChange24.textContent = fmtPct(btc.price_change_percentage_24h, 2);
+      els.btcChange24.className = "value mono " + classForSigned(btc.price_change_percentage_24h);
+
+      const absMove = btc.price_change_percentage_24h == null
+        ? null
+        : (btc.current_price / (1 + btc.price_change_percentage_24h / 100)) * (btc.price_change_percentage_24h / 100);
+
+      els.btcChangeText.textContent = absMove == null
+        ? "24h move unavailable"
+        : "Approx. $" + Math.abs(absMove).toLocaleString(undefined, { maximumFractionDigits: 0 }) +
+          (absMove >= 0 ? " up vs 24h ago" : " down vs 24h ago");
+
+      return {
+        btcPrice: btc.current_price,
+        btcChange24: btc.price_change_percentage_24h
+      };
+    }
+
+    function renderExchangeTable(quotes) {
+      const valid = quotes.filter(q => q.ok && q.price != null && Number.isFinite(q.price));
+
+      if (!valid.length) {
+        els.exchangeAvg.textContent = "—";
+        els.exchangeLow.textContent = "—";
+        els.exchangeSpread.textContent = "—";
+        els.exchangeTableBody.innerHTML = `<tr><td colspan="4" class="small">All monitored exchange feeds are currently unavailable.</td></tr>`;
+        return;
+      }
+
+      const prices = valid.map(q => q.price);
+      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+      const low = Math.min(...prices);
+      const high = Math.max(...prices);
+      const spread = high - low;
+
+      els.exchangeAvg.textContent = fmtPrice(avg, 2);
+      els.exchangeLow.textContent = fmtPrice(low, 2);
+      els.exchangeSpread.textContent = fmtPrice(spread, 2);
+      els.exchangeSpread.className = "value mono " + (
+        spread >= CONFIG.thresholds.exchangeStressUsd ? "delta-down" :
+        spread >= CONFIG.thresholds.exchangeWarnUsd ? "delta-warn" : "delta-up"
+      );
+
+      const rows = quotes.map(q => {
+        if (!q.ok || q.price == null || !Number.isFinite(q.price)) {
+          return `
+            <tr>
+              <td>${q.name}</td>
+              <td>—</td>
+              <td>—</td>
+              <td class="delta-down">Unavailable</td>
+            </tr>
+          `;
+        }
+
+        const diff = q.price - avg;
+        const abs = Math.abs(diff);
+        let state = "Normal";
+        let cls = "delta-up";
+
+        if (abs >= CONFIG.thresholds.exchangeStressUsd) {
+          state = "Wide";
+          cls = "delta-down";
+        } else if (abs >= CONFIG.thresholds.exchangeWarnUsd) {
+          state = "Watch";
+          cls = "delta-warn";
+        }
+
+        return `
+          <tr>
+            <td>${q.name}</td>
+            <td class="mono">${fmtPrice(q.price, 2)}</td>
+            <td class="mono ${diff >= 0 ? 'delta-up' : 'delta-down'}">
+              ${diff >= 0 ? '+' : '-'}${fmtPrice(Math.abs(diff), 2)}
+            </td>
+            <td class="${cls}">${state}</td>
+          </tr>
+        `;
+      }).join("");
+
+      els.exchangeTableBody.innerHTML = rows;
+    }
+
+    function renderMarketStatus(snapshot, btc, quotes) {
+      const checks = [];
+
+      if (snapshot.usdtPrice != null) checks.push(Math.abs((snapshot.usdtPrice - 1) * 10000));
+      if (snapshot.usdcPrice != null) checks.push(Math.abs((snapshot.usdcPrice - 1) * 10000));
+      if (snapshot.usdcUsdtPrice != null) checks.push(Math.abs((snapshot.usdcUsdtPrice - 1) * 10000));
+
+      const validQuotes = quotes.filter(q => q.ok && q.price != null && Number.isFinite(q.price));
+      let exchangeSpread = null;
+      if (validQuotes.length) {
+        const prices = validQuotes.map(q => q.price);
+        exchangeSpread = Math.max(...prices) - Math.min(...prices);
+      }
+
+      let label = "Stable";
+      let cls = "status-stable";
+      let summary = "Stablecoins appear broadly near peg.";
+
+      const maxBps = checks.length ? Math.max(...checks) : 0;
+
+      if (
+        maxBps >= CONFIG.thresholds.stressBps ||
+        (exchangeSpread != null && exchangeSpread >= CONFIG.thresholds.exchangeStressUsd)
+      ) {
+        label = "Stress";
+        cls = "status-stress";
+        summary = "Meaningful deviation detected in stablecoins or exchange pricing.";
+      } else if (
+        maxBps >= CONFIG.thresholds.warnBps ||
+        (exchangeSpread != null && exchangeSpread >= CONFIG.thresholds.exchangeWarnUsd) ||
+        (btc.btcChange24 != null && Math.abs(btc.btcChange24) >= 3)
+      ) {
+        label = "Watch";
+        cls = "status-watch";
+        summary = "Mild dislocation or a larger BTC move warrants attention.";
+      } else if (btc.btcChange24 != null) {
+        summary = "Stablecoins look orderly; BTC is " + fmtPct(btc.btcChange24, 2) + " over 24h.";
+      }
+
+      els.marketStatus.textContent = label;
+      els.marketStatus.className = "hero-value " + cls;
+      els.marketSummary.textContent = summary;
+    }
+
+    async function refreshDashboard() {
+      setStatus("Refreshing…", true);
+
+      try {
+        const [core, usdcUsdt, quotes] = await Promise.all([
+          fetchCoinGeckoMarkets(),
+          fetchKrakenUsdcUsdt().catch(() => null),
+          fetchExchangeQuotes()
+        ]);
+
+        const stable = renderStablecoins(core, usdcUsdt);
+        const btc = renderBitcoin(core);
+
+        const history = upsertTodaySnapshot({
+          usdtSupply: stable.usdtSupply,
+          usdcSupply: stable.usdcSupply,
+          usdtPrice: stable.usdtPrice,
+          usdcPrice: stable.usdcPrice,
+          usdcUsdtPrice: stable.usdcUsdtPrice,
+          btcPrice: btc.btcPrice
+        });
+
+        renderSupply(stable, history);
+        renderExchangeTable(quotes);
+        renderMarketStatus(stable, btc, quotes);
+
+        els.lastUpdated.textContent = formatDateTime(Date.now());
+        setStatus("Live", true);
+      } catch (err) {
+        console.error(err);
+        setStatus("Data source unavailable", false);
+        els.marketStatus.textContent = "Unavailable";
+        els.marketStatus.className = "hero-value status-stress";
+        els.marketSummary.textContent = "One or more required market data sources could not be reached.";
+      }
+    }
+
+    function startTimer() {
+      if (timer) clearInterval(timer);
+      const ms = Number(els.refreshRate.value);
+      timer = setInterval(refreshDashboard, ms);
+    }
+
+    els.refreshRate.addEventListener("change", startTimer);
+
+    els.shareBtn.addEventListener("click", async () => {
+      const msg = window.location.href;
+      try {
+        await navigator.clipboard.writeText(msg);
+        els.shareBtn.textContent = "Copied";
+        setTimeout(() => {
+          els.shareBtn.textContent = "Copy share link";
+        }, 1500);
+      } catch {
+        alert(msg);
+      }
+    });
+
+    renderNews();
+    refreshDashboard();
+    startTimer();
+  </script>
 </body>
 </html>
