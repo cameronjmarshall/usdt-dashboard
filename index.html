@@ -845,7 +845,264 @@ Key points:
         error: c.error
       }));
     }
+/********************************************************************
+ * SERVICE STATUS MONITOR
+ ********************************************************************/
 
+const SERVICE_STATUS_MONITORS = [
+  {
+    name: "Ledger",
+    type: "statuspage",
+    summaryUrl: "https://status.ledger.com/api/v2/summary.json",
+    sourceUrl: "https://status.ledger.com/"
+  },
+  {
+    name: "Polymarket",
+    type: "instatus",
+    summaryUrl: "https://status.polymarket.com/v3/summary.json",
+    componentsUrl: "https://status.polymarket.com/v3/components.json",
+    sourceUrl: "https://status.polymarket.com/"
+  },
+  {
+    name: "Rabby Wallet",
+    type: "reachability",
+    checkUrl: "https://rabby.io/",
+    sourceUrl: "https://rabby.io/"
+  }
+];
+
+function statusClass(level) {
+  if (level === "ok") return "ok";
+  if (level === "watch") return "watch";
+  if (level === "bad") return "bad";
+  return "unknown";
+}
+
+function statusDot(level) {
+  if (level === "ok") return "●";
+  if (level === "watch") return "●";
+  if (level === "bad") return "●";
+  return "●";
+}
+
+function normaliseStatuspageIndicator(indicator) {
+  if (indicator === "none") return "ok";
+  if (indicator === "minor") return "watch";
+  if (indicator === "major" || indicator === "critical") return "bad";
+  return "unknown";
+}
+
+function normaliseInstatusStatus(status) {
+  const s = String(status || "").toUpperCase();
+
+  if (s === "UP" || s === "OPERATIONAL") return "ok";
+  if (
+    s.includes("DEGRADED") ||
+    s.includes("PARTIAL") ||
+    s.includes("UNDERMAINTENANCE") ||
+    s.includes("MAINTENANCE")
+  ) {
+    return "watch";
+  }
+  if (
+    s.includes("DOWN") ||
+    s.includes("MAJOROUTAGE") ||
+    s.includes("MAJOR_OUTAGE") ||
+    s.includes("OUTAGE")
+  ) {
+    return "bad";
+  }
+
+  return "unknown";
+}
+
+function compactComponentSummary(components, maxItems = 4) {
+  if (!Array.isArray(components) || !components.length) return "";
+
+  const affected = components.filter(c => {
+    const s = String(c.status || "").toLowerCase();
+    return !["operational", "up"].includes(s);
+  });
+
+  if (!affected.length) return "All listed components operational";
+
+  return affected
+    .slice(0, maxItems)
+    .map(c => `${c.name}: ${c.status}`)
+    .join("; ") + (affected.length > maxItems ? `; +${affected.length - maxItems} more` : "");
+}
+
+async function fetchLedgerStatus(monitor) {
+  const data = await fetchJSON(monitor.summaryUrl);
+
+  const indicator = data?.status?.indicator || "unknown";
+  const description = data?.status?.description || "Status unavailable";
+  const level = normaliseStatuspageIndicator(indicator);
+  const componentText = compactComponentSummary(data?.components);
+
+  const incidents = Array.isArray(data?.incidents) ? data.incidents : [];
+  const incidentText = incidents.length
+    ? `${incidents.length} active incident${incidents.length === 1 ? "" : "s"}`
+    : "No active incidents shown";
+
+  return {
+    name: monitor.name,
+    level,
+    label: description,
+    detail: componentText ? `${incidentText}. ${componentText}.` : incidentText,
+    sourceUrl: monitor.sourceUrl,
+    checkedAt: Date.now()
+  };
+}
+
+async function fetchPolymarketStatus(monitor) {
+  const [summary, components] = await Promise.all([
+    fetchJSON(monitor.summaryUrl),
+    monitor.componentsUrl ? fetchJSON(monitor.componentsUrl) : Promise.resolve([])
+  ]);
+
+  const pageStatus = summary?.page?.status || "UNKNOWN";
+  const level = normaliseInstatusStatus(pageStatus);
+
+  const activeIncidents = Array.isArray(summary?.activeIncidents)
+    ? summary.activeIncidents
+    : [];
+
+  const activeMaintenances = Array.isArray(summary?.activeMaintenances)
+    ? summary.activeMaintenances
+    : [];
+
+  const componentText = compactComponentSummary(components);
+
+  let detail = "No active incidents shown";
+
+  if (activeIncidents.length || activeMaintenances.length) {
+    const parts = [];
+
+    if (activeIncidents.length) {
+      parts.push(`${activeIncidents.length} active incident${activeIncidents.length === 1 ? "" : "s"}`);
+    }
+
+    if (activeMaintenances.length) {
+      parts.push(`${activeMaintenances.length} active maintenance item${activeMaintenances.length === 1 ? "" : "s"}`);
+    }
+
+    detail = parts.join("; ");
+  }
+
+  if (componentText) {
+    detail += `. ${componentText}.`;
+  }
+
+  return {
+    name: monitor.name,
+    level,
+    label: pageStatus === "UP" ? "Operational" : pageStatus,
+    detail,
+    sourceUrl: monitor.sourceUrl,
+    checkedAt: Date.now()
+  };
+}
+
+async function fetchReachabilityStatus(monitor) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), APP_CONFIG.timeoutMs);
+
+  try {
+    await fetch(monitor.checkUrl, {
+      method: "GET",
+      mode: "no-cors",
+      cache: "no-store",
+      signal: controller.signal
+    });
+
+    return {
+      name: monitor.name,
+      level: "ok",
+      label: "Reachable",
+      detail: "Website request completed. This is a reachability check, not an official incident feed.",
+      sourceUrl: monitor.sourceUrl,
+      checkedAt: Date.now()
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchSingleServiceStatus(monitor) {
+  if (monitor.type === "statuspage") return fetchLedgerStatus(monitor);
+  if (monitor.type === "instatus") return fetchPolymarketStatus(monitor);
+  if (monitor.type === "reachability") return fetchReachabilityStatus(monitor);
+
+  throw new Error("Unknown monitor type");
+}
+
+async function fetchServiceStatuses() {
+  const results = await Promise.all(
+    SERVICE_STATUS_MONITORS.map(monitor =>
+      safeCall(monitor.name, () => fetchSingleServiceStatus(monitor))
+    )
+  );
+
+  return results.map(r => {
+    if (r.ok) return r.value;
+
+    const monitor = SERVICE_STATUS_MONITORS.find(m => m.name === r.name);
+
+    return {
+      name: r.name,
+      level: "unknown",
+      label: "Check failed",
+      detail: r.error || "Status unavailable",
+      sourceUrl: monitor?.sourceUrl || "#",
+      checkedAt: Date.now()
+    };
+  });
+}
+
+function renderServiceStatuses(statuses) {
+  if (!Array.isArray(statuses) || !statuses.length) {
+    els.serviceStatusBody.innerHTML =
+      `<tr><td colspan="5" class="small">No service status data available.</td></tr>`;
+    return { worstLevel: "unknown", issueCount: 0 };
+  }
+
+  const severityRank = {
+    ok: 0,
+    unknown: 1,
+    watch: 2,
+    bad: 3
+  };
+
+  const worst = statuses.reduce((a, b) =>
+    severityRank[b.level] > severityRank[a.level] ? b : a
+  );
+
+  const issueCount = statuses.filter(s => s.level === "watch" || s.level === "bad").length;
+
+  els.serviceStatusBody.innerHTML = statuses.map(s => `
+    <tr>
+      <td>${escapeHtml(s.name)}</td>
+      <td>
+        <span class="status-pill ${statusClass(s.level)}">
+          ${statusDot(s.level)} ${escapeHtml(s.label)}
+        </span>
+      </td>
+      <td>${escapeHtml(s.detail)}</td>
+      <td class="mono">${escapeHtml(formatDateTime(s.checkedAt))}</td>
+      <td>
+        <a class="service-source" href="${escapeHtml(s.sourceUrl)}" target="_blank" rel="noopener noreferrer">
+          Open
+        </a>
+      </td>
+    </tr>
+  `).join("");
+
+  return {
+    worstLevel: worst.level,
+    issueCount
+  };
+}
     /********************************************************************
      * RENDER MARKET DATA
      ********************************************************************/
@@ -1073,10 +1330,11 @@ Key points:
       try {
         renderDailyInputBlocks();
 
-        const [cgRes, pairRes, exchangeRes] = await Promise.all([
+        const [cgRes, pairRes, exchangeRes, serviceRes] = await Promise.all([
           safeCall("CoinGecko", fetchCoinGeckoCore),
           safeCall("Kraken USDC/USDT", fetchKrakenUsdcUsdt),
-          safeCall("Exchange prices", fetchExchangeQuotes)
+          safeCall("Exchange prices", fetchExchangeQuotes),
+          safeCall("Service status monitors", fetchServiceStatuses)
         ]);
 
         if (!cgRes.ok) {
@@ -1102,13 +1360,31 @@ Key points:
         renderSupply(stable, history);
 
         const exchangeStats = renderExchangeTable(quotes);
+        const serviceStats = renderServiceStatuses(serviceRes.ok ? serviceRes.value : []);
         renderMarketStatus(stable, btc, exchangeStats);
+
+        if (serviceStats.issueCount > 0) {
+          const currentSummary = els.marketSummary.textContent || "";
+          setText(
+            els.marketSummary,
+            currentSummary + ` Service monitor: ${serviceStats.issueCount} monitored service${serviceStats.issueCount === 1 ? "" : "s"} require attention.`
+          );
+
+          if (serviceStats.worstLevel === "bad") {
+            setText(els.marketStatus, "Stress");
+            els.marketStatus.className = "hero-value status-stress";
+          } else if (serviceStats.worstLevel === "watch" && els.marketStatus.textContent === "Stable") {
+            setText(els.marketStatus, "Watch");
+            els.marketStatus.className = "hero-value status-watch";
+          }
+        }
 
         setText(els.lastUpdated, formatDateTime(Date.now()));
         setStatus("Live", true);
       } catch (err) {
         console.error(err);
         renderDailyInputBlocks();
+        renderServiceStatuses([]);
         setStatus("Core data unavailable", false);
         setText(els.marketStatus, "Unavailable");
         els.marketStatus.className = "hero-value status-stress";
