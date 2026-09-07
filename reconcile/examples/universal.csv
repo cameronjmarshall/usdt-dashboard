@@ -1,0 +1,7 @@
+Date,Exchange,Wallet,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,Order ID,Transaction ID,Label,Description
+2026-08-01 09:00:00,Example Exchange,Trading,,,50000,USDT,,,,sample-deposit,deposit,Fictional funding
+2026-08-03 10:00:01,Example Exchange,Trading,6000,USDT,0.1,BTC,6,USDT,BTC-BUY-101,sample-fill-1,trade,First order fill
+2026-08-03 10:00:02,Example Exchange,Trading,9000,USDT,0.15,BTC,9,USDT,BTC-BUY-101,sample-fill-2,trade,Second order fill
+2026-08-08 15:00:00,Example Exchange,Trading,0.08,BTC,4960,USDT,4.96,USDT,BTC-SELL-102,sample-sell,trade,Partial sale
+2026-08-09 11:00:00,Example Exchange,Trading,0.05,BTC,,,0.0001,BTC,,sample-send,withdrawal,Sent to Ledger
+2026-08-09 11:12:00,Ledger,Ledger 21 wallet 3,,,0.05,BTC,,,,sample-receive,deposit,Received from exchange

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="description" content="Import crypto CSVs, group trade fills and reconcile exchange and wallet balances on your computer.">
+  <title>Crypto Reconcile</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="core.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="index.html"><span class="brand-mark">CR</span><span>Crypto<br><strong>Reconcile</strong></span></a>
+    <div class="workspace-label">WORKSPACE</div>
+    <nav aria-label="Workspace">
+      <button data-view="transactions" class="nav-button active" aria-current="page"><span>Transactions</span><span id="nav-count">0</span></button>
+      <button data-view="balances" class="nav-button">Balances</button>
+      <button data-view="imports" class="nav-button">Import history</button>
+    </nav>
+    <div class="sidebar-bottom"><p class="local-label">On this device</p><p>Your CSVs stay in this browser session. Save a project before closing.</p><button id="new-project" class="text-button">New project</button></div>
+  </aside>
+  <main>
+    <header class="topbar"><div><span class="eyebrow">CRYPTO OPERATIONS</span><h1 id="page-title">Transactions</h1></div>
+      <div class="header-actions"><button id="open-project">Open project</button><button id="save-project">Save project</button><button class="primary" id="import-button">+ Import CSV</button></div>
+    </header>
+    <div id="demo-banner" class="banner" hidden>Sample workspace · All figures are fictional. <button id="exit-demo" class="text-button">Start with my data</button></div>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <section class="stats" aria-label="Workspace totals">
+      <div><span>Imported entries</span><strong id="stat-entries">0</strong><small id="stat-imports">No CSVs imported</small></div>
+      <div><span>Rows in this view</span><strong id="stat-groups">0</strong><small id="stat-group-label">Grouped by order</small></div>
+      <div><span>Awaiting review</span><strong id="stat-review">0</strong><small>Entries in the current view</small></div>
+    </section>
+    <section id="filters" class="filters" aria-label="Filter transactions">
+      <label>Period (UTC)<input type="month" id="period"><button class="text-button" id="clear-period">All dates</button></label>
+      <label>Exchange<select id="exchange-filter"><option value="">All exchanges</option></select></label>
+      <label>Ledger / account<select id="wallet-filter"><option value="">All accounts</option></select></label>
+      <label id="group-label">Group rows<select id="group-mode"><option value="order">Trade order</option><option value="day">Daily totals</option><option value="month">Monthly totals</option><option value="none">Individual entries</option></select></label>
+      <label id="search-label">Search<input id="search" type="search" placeholder="Token, order or description"></label>
+    </section>
+    <section id="transactions-view" class="panel">
+      <div class="panel-heading"><div><h2>Transaction activity</h2><p id="activity-caption">Import a CSV to start reconciling.</p></div><button id="export-transactions">Export this view</button></div>
+      <div id="empty-state" class="empty-state"><div class="file-symbol" aria-hidden="true">CSV</div><h2>Bring your transactions together</h2><p>Import an exchange or wallet export. Check the columns, then review each trade as one row.</p><button class="primary" id="empty-import">Import CSV</button><button id="load-demo">Try sample data</button><a href="examples/universal.csv" download>Download example CSV</a></div>
+      <div class="table-wrap" id="transaction-table-wrap" hidden><table><thead><tr><th>Date / order</th><th>Type</th><th>Exchange / account</th><th class="numeric">Sent</th><th class="numeric">Received</th><th>Review</th><th><span class="sr-only">Details</span></th></tr></thead><tbody id="transaction-body"></tbody></table></div>
+      <div class="pagination" id="pagination" hidden><span id="page-summary"></span><div><button id="previous-page">Previous</button><button id="next-page">Next</button></div></div>
+    </section>
+    <section id="balances-view" class="panel" hidden>
+      <div class="panel-heading"><div><h2>Balance reconciliation</h2><p>Enter opening and statement closing quantities for the selected period. GBP values are entered manually.</p></div><button id="export-balances">Export balances</button></div>
+      <div class="table-wrap"><table class="balance-table"><thead><tr><th>Exchange / account</th><th>Token</th><th class="numeric">Open CCY</th><th class="numeric">Net movement</th><th class="numeric">Calculated close</th><th class="numeric">Statement close</th><th class="numeric">Difference</th><th class="numeric">Open GBP</th><th class="numeric">Close GBP</th><th>Status</th><th>Comments</th></tr></thead><tbody id="balance-body"></tbody></table></div>
+      <p class="panel-footnote">Net movement = received − sent − additional fees. “Matched” compares quantities only; GBP values are not verified.</p>
+    </section>
+    <section id="imports-view" class="panel" hidden><div class="panel-heading"><div><h2>Import history</h2><p>Original source rows, mapping settings and excluded rows are retained in your saved project.</p></div></div><div id="imports-list"></div></section>
+  </main>
+  <input type="file" id="csv-file" accept=".csv,.tsv,text/csv,text/tab-separated-values" multiple hidden>
+  <input type="file" id="project-file" accept=".json,application/json" hidden>
+  <dialog id="import-dialog" aria-labelledby="import-title">
+    <div class="dialog-header"><div><span class="eyebrow">CSV IMPORT</span><h2 id="import-title">Check your columns</h2><p id="import-filename"></p></div><button id="close-import" aria-label="Close import">×</button></div>
+    <div class="dialog-content">
+      <div class="mapping-settings">
+        <label>CSV layout<select id="layout"><option value="dual">Sent &amp; received amounts</option><option value="trade">Trade fills (buy / sell)</option><option value="movement">Signed asset movements</option></select></label>
+        <label>Exchange / platform<input id="import-exchange" placeholder="e.g. Kraken" maxlength="100"></label>
+        <label>Ledger / account<input id="import-wallet" value="Main" placeholder="e.g. Ledger 21 wallet 3" maxlength="100"></label>
+        <label>Slash dates<select id="date-order"><option value="dmy">DD/MM/YYYY</option><option value="mdy">MM/DD/YYYY</option></select></label>
+        <label>Unzoned timestamps<select id="timezone"><option value="0">UTC (UTC+00:00)</option><option value="60">UTC+01:00 (e.g. BST)</option><option value="120">UTC+02:00</option><option value="-240">UTC−04:00</option><option value="-300">UTC−05:00</option><option value="480">UTC+08:00</option></select></label>
+        <label>Decimal separator<select id="decimal-separator"><option value=".">Point · 1234.56</option><option value=",">Comma · 1234,56</option></select></label>
+        <label class="wide">Fee treatment<select id="fee-mode"><option value="">Choose from the export’s amount convention</option><option value="separate">Deduct fee in addition to sent / received amounts</option><option value="included">Amounts already include the fee — record it only</option></select></label>
+      </div>
+      <p class="help">Check fee treatment against the exchange export to avoid counting a fee twice. Use a unique fill/entry ID for duplicate checks; use the shared order/reference ID to group fills. Explicit timezone offsets in your CSV take precedence. A fixed offset does not adjust for daylight saving.</p>
+      <div id="mapping-grid" class="mapping-grid"></div>
+      <div id="trade-defaults" class="mapping-settings" hidden><label>Default base currency<input id="default-base" placeholder="e.g. BTC"></label><label>Default quote currency<input id="default-quote" placeholder="e.g. USDT"></label></div>
+      <label class="fee-default">Default fee currency (only if absent from CSV)<input id="default-fee" placeholder="e.g. USDT"></label>
+      <details class="source-preview"><summary>Source CSV preview</summary><div class="table-wrap" id="source-preview"></div></details>
+      <div id="import-preview" class="import-preview" aria-live="polite"><p>Check the mapping, then preview the import.</p></div>
+    </div>
+    <div class="dialog-footer"><button id="preview-import">Preview import</button><button class="primary" id="confirm-import" disabled>Import transactions</button></div>
+  </dialog>
+  <noscript><p>JavaScript is required to read CSVs and calculate balances locally.</p></noscript>
+</body>
+</html>
