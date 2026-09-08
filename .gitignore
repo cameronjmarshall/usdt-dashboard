@@ -1,6 +1,6 @@
-# Personal reconciliation data belongs outside the source repository.
-reconcile/data/
-reconcile/*.csv
-reconcile/*.tsv
-reconcile/*.json
-reconcile/crypto-reconcile-*.json
+# Keep real source data and saved projects outside this repository.
+data/
+*.json
+*.csv
+*.tsv
+!examples/*.csv

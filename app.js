@@ -1,13 +1,13 @@
 (function () {
   'use strict';
-  const R = window.Reconcile, $ = id => document.getElementById(id);
+  const R = window.Reconcile, W = window.ReconcileWorkflow, $ = id => document.getElementById(id);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const fresh = () => ({ format: 'crypto-reconcile', version: 1, entries: [], imports: [], balanceInputs: {}, demo: false });
+  const fresh = () => ({ format: 'crypto-reconcile', version: 2, entries: [], imports: [], balanceInputs: {}, dailyReviews: {}, workflowAudit: [], demo: false });
   let state = fresh(), dirty = false, view = 'transactions', page = 0, groups = [], draft = null, fileQueue = [], sequence = 0;
-  const expanded = new Set(), PAGE_SIZE = 50;
+  const expanded = new Set(), selected = new Set(), PAGE_SIZE = 50;
   const uid = prefix => prefix + '-' + Date.now().toString(36) + '-' + (++sequence);
   const names = { trade: 'Trade', trade_leg: 'Trade leg', deposit: 'Deposit', withdrawal: 'Withdrawal', reward: 'Reward', fee: 'Fee', movement: 'Movement' };
-  const groupNames = { order: 'Grouped by order', day: 'Daily totals', month: 'Monthly totals', none: 'Individual entries' };
+  const groupNames = { order: 'Orders + my combinations', combined: 'My combinations only', day: 'Daily totals', month: 'Monthly totals', none: 'Individual entries' };
   function notify(message, error = false) { $('notice').textContent = message; $('notice').className = 'notice' + (error ? ' error' : ''); $('notice').hidden = false; }
   function changed() { dirty = true; $('save-project').textContent = 'Save project *'; }
   function number(value) { const [whole, fraction] = String(value).split('.'); return whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction ? '.' + fraction : ''); }
@@ -28,7 +28,10 @@
     options('exchange-filter', state.entries.map(e => e.exchange), 'All exchanges');
     options('wallet-filter', state.entries.filter(e => !$('exchange-filter').value || e.exchange === $('exchange-filter').value).map(e => e.wallet), 'All accounts');
     const entries = filterEntries(view === 'transactions');
-    groups = R.groupTransactions(entries, $('group-mode').value);
+    groups = W.displayGroups(entries, $('group-mode').value);
+    const visibleIds = new Set(entries.map(e => e.uid));
+    for (const id of selected) if (!visibleIds.has(id)) selected.delete(id);
+    renderExchangeTabs();
     $('nav-count').textContent = state.entries.length.toLocaleString('en-GB');
     $('stat-entries').textContent = state.entries.length.toLocaleString('en-GB');
     $('stat-imports').textContent = state.imports.length ? state.imports.length + ' CSV import' + (state.imports.length === 1 ? '' : 's') : 'No CSVs imported';
@@ -36,28 +39,30 @@
     $('stat-group-label').textContent = view === 'balances' ? 'Account / token balances' : groupNames[$('group-mode').value];
     $('stat-review').textContent = entries.filter(e => !e.reviewed).length.toLocaleString('en-GB');
     $('demo-banner').hidden = !state.demo;
-    $('page-title').textContent = view === 'transactions' ? 'Transactions' : view === 'balances' ? 'Balances' : 'Import history';
-    for (const key of ['transactions', 'balances', 'imports']) $(key + '-view').hidden = view !== key;
+    $('page-title').textContent = view === 'transactions' ? 'Transactions' : view === 'balances' ? 'Balances' : view === 'daily' ? 'Daily checks & GBP' : 'Import history';
+    for (const key of ['transactions', 'balances', 'daily', 'imports']) $(key + '-view').hidden = view !== key;
     document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === view); if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     $('filters').hidden = view === 'imports';
     $('group-label').hidden = $('search-label').hidden = view !== 'transactions';
     if (view === 'transactions') renderTransactions();
     if (view === 'balances') renderBalances();
+    if (view === 'daily') renderDaily();
     if (view === 'imports') renderImports();
   }
   function renderTransactions() {
     $('empty-state').hidden = state.entries.length > 0;
     $('transaction-table-wrap').hidden = state.entries.length === 0;
     $('export-transactions').disabled = groups.length === 0;
-    $('activity-caption').textContent = state.entries.length ? 'Buy and sell directions stay separate. Expand a row to inspect entries, fees and source data.' : 'Import a CSV to start reconciling.';
+    $('activity-caption').textContent = state.entries.length ? 'Select matching entries to combine them. Use Individual entries to choose raw rows; expand any summary for its source data.' : 'Import a CSV to start reconciling.';
     page = Math.max(0, Math.min(page, Math.ceil(groups.length / PAGE_SIZE) - 1));
     $('transaction-body').innerHTML = groups.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((g, offset) => {
       const index = page * PAGE_SIZE + offset, reviewed = g.entries.every(e => e.reviewed), count = g.entries.length;
       const orders = [...new Set(g.entries.map(e => e.orderId).filter(Boolean))];
-      const reference = $('group-mode').value === 'order' && orders.length === 1 ? 'Order ' + orders[0] : count + (count === 1 ? ' entry' : ' entries');
-      return '<tr class="transaction-row"><td>' + escape(dateText(g.date)) + '<span class="subtext">' + escape(reference) + (g.date.slice(0, 10) !== g.endDate.slice(0, 10) ? ' · to ' + escape(dateText(g.endDate)) : '') + '</span></td><td><span class="pill ' + escape(g.kind) + '">' + escape(names[g.kind]) + '</span></td><td>' + escape(g.exchange) + '<span class="subtext">' + escape(g.wallet) + '</span></td><td class="numeric">' + mapHTML(g.sent) + '</td><td class="numeric positive">' + mapHTML(g.received) + '</td><td><button class="review-button ' + (reviewed ? 'reviewed' : '') + '" data-review="' + index + '" aria-pressed="' + reviewed + '">' + (reviewed ? 'Reviewed' : 'To review') + '</button></td><td><button class="expand-button" data-expand="' + index + '" aria-expanded="' + expanded.has(g.key) + '" aria-label="Details for ' + escape(names[g.kind] + ' ' + dateText(g.date)) + '">' + (expanded.has(g.key) ? '−' : '+') + '</button></td></tr>' + (expanded.has(g.key) ? detailsHTML(g) : '');
+      const reference = g.manualGroup ? 'Combined · ' + count + ' entries' : $('group-mode').value === 'order' && orders.length === 1 ? 'Order ' + orders[0] : count + (count === 1 ? ' entry' : ' entries');
+      return '<tr class="transaction-row"><td><input class="row-select" type="checkbox" data-select="' + index + '" aria-label="Select underlying entries for ' + escape(reference) + '"' + (g.entries.every(e => selected.has(e.uid)) ? ' checked' : '') + '> ' + escape(dateText(g.date)) + '<span class="subtext">' + escape(reference) + (g.date.slice(0, 10) !== g.endDate.slice(0, 10) ? ' · to ' + escape(dateText(g.endDate)) : '') + '</span></td><td><span class="pill ' + escape(g.kind) + '">' + escape(names[g.kind]) + '</span></td><td>' + escape(g.exchange) + '<span class="subtext">' + escape(g.wallet) + '</span></td><td class="numeric">' + mapHTML(g.sent) + '</td><td class="numeric positive">' + mapHTML(g.received) + '</td><td><button class="review-button ' + (reviewed ? 'reviewed' : '') + '" data-review="' + index + '" aria-pressed="' + reviewed + '">' + (reviewed ? 'Reviewed' : 'To review') + '</button></td><td><button class="expand-button" data-expand="' + index + '" aria-expanded="' + expanded.has(g.key) + '" aria-label="Details for ' + escape(names[g.kind] + ' ' + dateText(g.date)) + '">' + (expanded.has(g.key) ? '−' : '+') + '</button></td></tr>' + (expanded.has(g.key) ? detailsHTML(g) : '');
     }).join('') || '<tr><td colspan="7" class="no-results">No transactions match these filters.</td></tr>';
     $('pagination').hidden = groups.length === 0;
+    renderSelection();
     $('page-summary').textContent = (page * PAGE_SIZE + 1) + '–' + Math.min((page + 1) * PAGE_SIZE, groups.length) + ' of ' + groups.length + ' rows';
     $('previous-page').disabled = page === 0; $('next-page').disabled = (page + 1) * PAGE_SIZE >= groups.length;
   }
@@ -105,6 +110,98 @@
     const rows = balanceRows().map(row => { const v = state.balanceInputs[balanceKey(row)] || {}, r = R.reconcileBalance(row, v); return [$('period').value || 'All imported dates', row.exchange, row.wallet, row.asset, v.open, row.incoming, row.outgoing, row.fees, row.movement, r.calculated, v.close, r.difference, v.openGBP, v.closeGBP, r.status, v.comment]; });
     download('crypto-balances-' + ($('period').value || 'all-dates') + '.csv', R.exportCSV(headers, rows), 'text/csv;charset=utf-8');
   }
+  function renderExchangeTabs() {
+    const exchanges = [...new Set(state.entries.map(e => e.exchange))].sort();
+    $('exchange-tabs').innerHTML = ['', ...exchanges].map(name => '<button data-exchange="' + escape(name) + '" aria-pressed="' + ($('exchange-filter').value === name) + '" class="exchange-tab ' + ($('exchange-filter').value === name ? 'active' : '') + '">' + escape(name || 'All exchanges') + '<span>' + (name ? state.entries.filter(e => e.exchange === name).length : state.entries.length) + '</span></button>').join('');
+  }
+  function renderSelection() {
+    $('combine-toolbar').hidden = state.entries.length === 0;
+    $('selected-count').textContent = selected.size + ' entries selected';
+    $('combine-selected').disabled = selected.size < 2;
+    $('split-selected').disabled = !state.entries.some(e => selected.has(e.uid) && e.manualGroup);
+    $('clear-selected').disabled = selected.size === 0;
+  }
+  function audit(action, fields) { state.workflowAudit.push({at:new Date().toISOString(),action,...fields}); }
+  $('exchange-tabs').addEventListener('click', event => {
+    const button=event.target.closest('[data-exchange]');if(!button)return;
+    $('exchange-filter').value=button.dataset.exchange;$('wallet-filter').value='';selected.clear();expanded.clear();page=0;render();
+  });
+  $('transaction-body').addEventListener('change', event => {
+    const input=event.target.closest('[data-select]');if(!input)return;
+    groups[Number(input.dataset.select)].entries.forEach(e=>input.checked?selected.add(e.uid):selected.delete(e.uid));renderSelection();
+  });
+  $('select-visible').addEventListener('click',()=>{groups.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).forEach(g=>g.entries.forEach(e=>selected.add(e.uid)));renderTransactions();});
+  $('clear-selected').addEventListener('click',()=>{selected.clear();renderTransactions();});
+  $('combine-selected').addEventListener('click',()=>{
+    try {const ids=[...selected],id=uid('combination');state.entries=W.combine(state.entries,ids,id);audit('Combined entries',{entryIds:ids,combination:id});changed();selected.clear();expanded.clear();$('group-mode').value='combined';render();notify(ids.length+' entries combined. Original rows and balances are retained.');}
+    catch(error){notify(error.message,true);}
+  });
+  $('split-selected').addEventListener('click',()=>{
+    const ids=[...selected];state.entries=W.split(state.entries,ids);audit('Split combinations',{entryIds:ids});selected.clear();changed();render();notify('The selected combinations have been split into their original entries.');
+  });
+  function dailyRows() { return W.dailyRows(filterEntries(false)); }
+  function checkHTML(row, review) {
+    const checked=W.reviewState(row,review),current=checked.status==='Signed off';
+    return '<span class="pill '+(current?'matched':checked.status==='Recheck'?'warning':'')+'">'+escape(checked.status)+'</span><button class="sign-button" data-sign="'+escape(row.key)+'">'+(current?'Reopen':'Sign off')+'</button>'+(current?'<span class="subtext">'+escape(checked.signedAt.replace('T',' ').slice(0,19))+' UTC</span>':'');
+  }
+  function renderDaily() {
+    const rows=dailyRows(),signed=rows.filter(r=>W.reviewState(r,state.dailyReviews[r.key]).status==='Signed off').length;
+    $('stat-groups').textContent=rows.length;$('stat-group-label').textContent='Day / type / currency rows';$('stat-review').textContent=rows.length-signed;
+    $('daily-caption').textContent=signed+' of '+rows.length+' daily rows signed off. Enter GBP per one unit of the currency beside the quantities.';
+    $('export-daily').disabled=!rows.length;
+    $('daily-body').innerHTML=rows.map(row=>{
+      const review=state.dailyReviews[row.key] || {},v=W.reviewState(row,review);
+      const field=(name,value,placeholder)=>'<input data-daily-key="'+escape(row.key)+'" data-daily-field="'+name+'" aria-label="'+escape(name+' for '+row.day+' '+row.exchange+' '+row.wallet+' '+row.kind+' '+row.asset)+'" value="'+escape(value)+'" placeholder="'+placeholder+'"'+(name==='rate'?' inputmode="decimal"':'')+(name==='rate'&&row.asset==='GBP'?' readonly':'')+'>';
+      return '<tr><td>'+escape(dateText(row.day))+'<span class="subtext">'+escape(row.exchange+' / '+row.wallet)+'</span></td><td>'+escape(W.kindName(row.kind))+'</td><td>'+escape(row.asset)+'</td><td class="numeric">'+escape(number(row.incoming))+'</td><td class="numeric">'+escape(number(row.outgoing))+'</td><td class="numeric">'+escape(number(row.fees))+'</td><td class="numeric">'+escape(number(row.net))+'</td><td>'+field('rate',v.rate,'GBP / unit')+'</td><td class="numeric">'+(v.netGBP===null?'—':'£'+escape(number(R.money(v.netGBP))))+'</td><td>'+field('reviewer',review.reviewer || '','Name / initials')+'</td><td>'+checkHTML(row,review)+'</td><td>'+field('comment',review.comment || '','Comment')+'</td><td><details><summary>'+row.entries.length+' entries</summary>'+row.entries.map(e=>'<div class="raw-row">'+escape(e.fileName || 'CSV')+' · '+escape(e.entryId || e.uid)+e.sources.map(s=>'<pre>Line '+escape(s.line)+'\n'+escape(JSON.stringify(s.raw,null,2))+'</pre>').join('')+'</div>').join('')+'</details></td></tr>';
+    }).join('')||'<tr><td colspan="13" class="no-results">Import transactions to prepare daily checks and GBP rates.</td></tr>';
+  }
+  function validDailyInputs(){const invalid=$('daily-body').querySelector('input:invalid');if(invalid){invalid.reportValidity();return false;}return true;}
+  $('daily-body').addEventListener('input',event=>event.target.setCustomValidity?.(''));
+  $('daily-body').addEventListener('change',event=>{
+    const input=event.target.closest('[data-daily-key]');if(!input)return;
+    try {
+      const key=input.dataset.dailyKey,field=input.dataset.dailyField,row=dailyRows().find(r=>r.key===key),old=state.dailyReviews[key] || {};
+      let value=input.value.trim();if(field==='rate'&&value!==''){value=R.amount(value,'.');if(R.compare(value,'0')<0)throw new Error('GBP rates cannot be negative.');}
+      if(field==='rate'&&row.asset==='GBP')value='1';
+      if(value!==(old[field] ?? '')) {
+        audit('Changed daily '+field,{key,previous:old[field] || '',value,previousSignOff:old.signedAt || ''});
+        state.dailyReviews[key]={...old,[field]:value,signedAt:'',signature:''};changed();
+      }
+      input.value=value;input.setCustomValidity('');
+      const review=state.dailyReviews[key] || {},v=W.reviewState(row,review),cells=input.closest('tr').cells;
+      cells[8].textContent=v.netGBP===null?'—':'£'+number(R.money(v.netGBP));
+      const pill=cells[10].querySelector('.pill'), signButton=cells[10].querySelector('[data-sign]');
+      pill.textContent=v.status;pill.className='pill '+(v.status==='Signed off'?'matched':v.status==='Recheck'?'warning':'');
+      signButton.textContent=v.status==='Signed off'?'Reopen':'Sign off';
+      if(v.status!=='Signed off')cells[10].querySelector('.subtext')?.remove();
+      const rows=dailyRows(),signed=rows.filter(r=>W.reviewState(r,state.dailyReviews[r.key]).status==='Signed off').length;
+      $('stat-review').textContent=rows.length-signed;$('daily-caption').textContent=signed+' of '+rows.length+' daily rows signed off.';
+    }catch(error){input.setCustomValidity(error.message);input.reportValidity();}
+  });
+  $('daily-body').addEventListener('click',event=>{
+    const button=event.target.closest('[data-sign]');if(!button||!validDailyInputs())return;
+    try {
+      const key=button.dataset.sign,row=dailyRows().find(r=>r.key===key),old=state.dailyReviews[key] || {};
+      if(W.reviewState(row,old).status==='Signed off'){state.dailyReviews[key]={...old,signedAt:'',signature:''};audit('Reopened daily check',{key,previousSignOff:old});}
+      else {state.dailyReviews[key]=W.sign(row,old);audit('Signed daily check',{key,review:{...state.dailyReviews[key]}});}
+      changed();renderDaily();
+    }catch(error){notify(error.message,true);}
+  });
+  $('export-daily').addEventListener('click',()=>{
+    if(!validDailyInputs())return;
+    const headers=['Day UTC','Exchange','Account','Type','Currency','Received','Sent','Additional fees','Net CCY','GBP per unit','Net GBP','Status','Reviewer','Signed at UTC','Comment','Source rows'];
+    const rows=dailyRows().map(r=>{const review=state.dailyReviews[r.key] || {},v=W.reviewState(r,review);return[r.day,r.exchange,r.wallet,W.kindName(r.kind),r.asset,r.incoming,r.outgoing,r.fees,r.net,v.rate,v.netGBP,v.status,v.reviewer,v.signedAt,review.comment,r.entries.map(e=>(e.fileName || 'CSV')+':'+e.sources.map(s=>s.line).join(',')).join(' | ')];});
+    download('daily-checks-'+($('period').value || 'all-dates')+'.csv',R.exportCSV(headers,rows),'text/csv;charset=utf-8');
+  });
+  $('export-report').addEventListener('click',()=>{
+    if(!validBalanceInputs()||!validDailyInputs())return;
+    const entries=filterEntries(false),daily=dailyRows(),keys=new Set(daily.map(r=>r.key)),ids=new Set(entries.map(e=>e.uid));
+    if(!entries.length){notify('Import transactions before exporting a report.',true);return;}
+    const balances=balanceRows().map(row=>{const input=state.balanceInputs[balanceKey(row)] || {};return{...row,input,result:R.reconcileBalance(row,input)};});
+    const html=W.reportHTML({period:$('period').value,exchange:$('exchange-filter').value,account:$('wallet-filter').value,balances,daily,reviews:state.dailyReviews,entries,audit:state.workflowAudit.filter(a=>a.key?keys.has(a.key):a.entryIds?.some(id=>ids.has(id)))});
+    download('crypto-reconciliation-report-'+($('period').value || 'all-dates')+'.html',html,'text/html;charset=utf-8');
+    notify('Report prepared with opening/closing balances, daily GBP checks and source entries. Open the HTML report and use Print → Save as PDF if needed.');
+  });
   const fieldLabels = { date: 'Date / time *', exchange: 'Exchange', wallet: 'Ledger / account', entryId: 'Unique fill / entry ID', orderId: 'Shared order / reference ID', hash: 'Transaction hash', kind: 'Type / label', notes: 'Description / notes', sentAmount: 'Sent amount', sentAsset: 'Sent currency', receivedAmount: 'Received amount', receivedAsset: 'Received currency', feeAmount: 'Fee amount', feeAsset: 'Fee currency', side: 'Buy / sell *', base: 'Base currency', quote: 'Quote currency', pair: 'Pair (BTC/USDT)', quantity: 'Base quantity *', total: 'Quote total', price: 'Price (if total absent)', asset: 'Currency *', amount: 'Signed amount *' };
   const layoutFields = { dual: ['date', 'sentAmount', 'sentAsset', 'receivedAmount', 'receivedAsset'], trade: ['date', 'side', 'quantity', 'total', 'price', 'base', 'quote', 'pair'], movement: ['date', 'asset', 'amount'] };
   const commonFields = ['feeAmount', 'feeAsset', 'entryId', 'orderId', 'exchange', 'wallet', 'kind', 'hash', 'notes'];
@@ -171,7 +268,7 @@
   }
   function reset() {
     if (dirty && !window.confirm('Start a new project? Save your current project first if you want to keep these changes.')) return false;
-    state = fresh(); dirty = false; expanded.clear(); page = 0; $('save-project').textContent = 'Save project'; $('period').value = ''; $('search').value = ''; $('notice').hidden = true; render(); return true;
+    state = fresh(); dirty = false; expanded.clear(); selected.clear(); page = 0; $('save-project').textContent = 'Save project'; $('period').value = ''; $('search').value = ''; $('notice').hidden = true; render(); return true;
   }
   function beginImport() { if (state.demo && !reset()) return; $('csv-file').value = ''; $('csv-file').click(); }
   document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { view = b.dataset.view; page = 0; render(); }));
@@ -211,7 +308,7 @@
   $('preview-import').addEventListener('click', previewImport); $('confirm-import').addEventListener('click', confirmImport);
   $('new-project').addEventListener('click', reset); $('exit-demo').addEventListener('click', reset);
   $('save-project').addEventListener('click', () => {
-    if (!validBalanceInputs()) return;
+    if (!validBalanceInputs() || !validDailyInputs()) return;
     download('crypto-reconcile-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify({ ...state, savedAt: new Date().toISOString() }), 'application/json');
     dirty = false; $('save-project').textContent = 'Save project'; notify('Project download prepared. Keep the JSON file to reopen your entries, source rows and balance checks.');
   });
@@ -220,9 +317,9 @@
     const file = $('project-file').files[0]; if (!file) return;
     try {
       if (file.size > 100 * 1024 * 1024) throw new Error('Choose a project file smaller than 100 MB.');
-      const restored = R.validateProject(JSON.parse(await file.text()));
+      const restored = W.validateProject(JSON.parse(await file.text()));
       if (dirty && !window.confirm('Replace this workspace with the saved project? Unsaved changes will be lost.')) return;
-      state = restored; dirty = false; page = 0; expanded.clear(); $('period').value = ''; $('search').value = ''; $('save-project').textContent = 'Save project'; render(); notify('Opened ' + file.name + '.');
+      state = restored; dirty = false; page = 0; expanded.clear(); selected.clear(); $('period').value = ''; $('search').value = ''; $('save-project').textContent = 'Save project'; render(); notify('Opened ' + file.name + '.');
     } catch (error) { notify('Could not open the project: ' + error.message, true); }
   });
   window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
