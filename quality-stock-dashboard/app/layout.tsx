@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Quality — Stock Research",
-  description: "Explore stock prices, cash generation and company quality with financial metrics inspired by Terry Smith.",
+  title: "Value — Investment Research",
+  description: "Research business quality, cash generation, scenario valuations and margin of safety with transparent financial assumptions.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

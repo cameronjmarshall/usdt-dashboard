@@ -1,4 +1,4 @@
-# Run Quality on your work PC
+# Run Value Dashboard on your work PC
 
 ## First-time setup (Windows)
 
@@ -7,8 +7,8 @@
 3. Run:
 
 ```bat
-git clone --branch codex/quality-stock-dashboard --single-branch https://github.com/cameronjmarshall/usdt-dashboard.git quality-stock-research
-cd quality-stock-research\quality-stock-dashboard
+git clone --branch codex/value-dashboard --single-branch https://github.com/cameronjmarshall/usdt-dashboard.git value-dashboard
+cd value-dashboard\quality-stock-dashboard
 npx --yes pnpm@11.19.0 install --frozen-lockfile
 npx --yes pnpm@11.19.0 run dev:pc
 ```
@@ -38,6 +38,8 @@ code .
 ```
 
 ## Get updates
+
+If you already cloned the original `codex/quality-stock-dashboard` branch, create a separate checkout using the commands above to open this refinement independently.
 
 Stop the running app before updating. From the app folder:
 

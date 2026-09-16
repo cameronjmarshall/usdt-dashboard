@@ -1,6 +1,6 @@
-# Quality — Stock Research
+# Value — Investment Research
 
-A responsive stock research website with Yahoo Finance price history and a company-quality table inspired by Terry Smith. The default ticker is MSFT; any supported Yahoo ticker can be entered, including UK exchange suffixes such as `ULVR.L` and `DGE.L`.
+A responsive investment research website with Yahoo Finance price history, a company-quality table inspired by Terry Smith and an assumption-led valuation workbench. The default ticker is MSFT; any supported Yahoo ticker can be entered, including UK exchange suffixes such as `ULVR.L` and `DGE.L`. See [RESEARCH-ROADMAP.md](RESEARCH-ROADMAP.md) for the next stages.
 
 ## What it does
 
@@ -11,6 +11,22 @@ A responsive stock research website with Yahoo Finance price history and a compa
 - Historical gross/operating margins, ROCE and cash conversion, with 3-year or all-available-year views.
 - Reporting dates, quote timestamps, trading/reporting currencies and formula explanations.
 - Separate price and statement loading/error states. Missing data are never filled with zero.
+- Editable bear/base/bull shareholder cash-flow valuations, margin-of-safety prices and terminal-value contribution.
+- Reverse DCF: cash-flow growth per share required to justify the latest quote under the other assumptions.
+- Sensitivity table varying base-case growth and required equity return by ±2 percentage points.
+
+## Valuation workbench
+
+The workbench uses an end-of-year discounted shareholder cash-flow model with a perpetual-growth terminal value. It discounts cash flows at a required equity return, not WACC. There is no enterprise-to-equity debt/cash bridge. The default cash-flow input is reported annual OCF less all capex, divided by basic weighted-average shares; it can be replaced with a reviewed sustainable cash-flow estimate. This is a **proxy**, not verified FCFE or Buffett owner earnings. Review financing flows, interest classification, working capital, maintenance capex, dilution and stock compensation before relying on it.
+
+Bear/base/bull starting growth rates of 0%/5%/10%, a 10% required return, 2% terminal growth, 10-year horizon and 25% target safety margin are illustrative interface defaults. They are not investment recommendations or rules attributed to an investor. Invalid inputs produce explanations rather than values. The current model requires positive base cash flow, terminal growth below required return and a whole-number horizon of 1–30 years. Growth is constant during the explicit horizon, then changes to the terminal rate.
+
+- Margin of safety = `1 − market price / model value`.
+- Price at target safety margin = `model value × (1 − target margin)`.
+- Upside/downside to model = `model value / market price − 1`.
+- Reverse DCF solves explicit-period growth between −95% and 100% annually; all other inputs stay fixed. It is a conditional model result, not observed investor expectations.
+
+Valuation and quote are both displayed in the trading currency's major unit, e.g. GBP rather than GBp. Missing FX does not silently imply parity. Assumptions are session-only: changing ticker or financial year, refreshing statements, or reloading resets them. Changing the chart timeframe preserves edits. Research persistence and exports are future work.
 
 ## Run locally
 
@@ -69,7 +85,7 @@ Daily observations are used for short periods, weekly for five years/long custom
 
 ## GitHub and work-PC setup
 
-This standalone app lives in `quality-stock-dashboard/` on branch `codex/quality-stock-dashboard` of `cameronjmarshall/usdt-dashboard`.
+This standalone app lives in `quality-stock-dashboard/` on branch `codex/value-dashboard` of `cameronjmarshall/usdt-dashboard`, derived from the existing `codex/quality-stock-dashboard` branch.
 
 See [WORK-PC-SETUP.md](WORK-PC-SETUP.md) for Windows installation and start instructions. Use `pnpm run dev:pc` for the Windows-friendly Next.js development server. The original Vinext commands remain available for the Cloudflare build.
 
@@ -77,6 +93,6 @@ The export does not contain the hosted Site's identity or any credentials. The e
 
 ## Validation
 
-`node scripts/test-finance.mjs` runs five focused checks covering calculation integrity, denominator edge cases, capex signs, currency mismatches, history parsing and invalid API inputs. TypeScript checking and the production build are separate checks.
+`node scripts/test-finance.mjs` runs eleven focused checks covering the existing finance/parser logic and valuation integrity. Valuation checks use independently known level/growing perpetuity values, reverse-DCF recovery, invalid assumptions, economic monotonicity and pence/FX conversions. TypeScript checking and the production build are separate checks.
 
-A feature-detected `read_stock_analysis` WebMCP tool reads the same state shown in the interface, including availability flags and calculation notes. Browsers without WebMCP work normally. Browser and WebMCP runtime QA were not performed in this creation session; no browser testing was requested.
+A feature-detected `read_stock_analysis` WebMCP tool reads the original company-quality state, including availability flags and calculation notes. It does not yet expose the valuation workbench's session inputs. Browsers without WebMCP work normally.

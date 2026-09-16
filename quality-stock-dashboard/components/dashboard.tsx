@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { METRICS, RANGES, metricsFor, metricText, numberText, compact, isNumber, periodReturn, normaliseCurrency, type FxData, type PriceData, type Fundamentals, type Range, type Metric, type MetricId } from '@/lib/finance';
+import { ValuationWorkbench } from '@/components/valuation-workbench';
 
 const LETTER = 'https://www.fundsmith.co.uk/media/4hcfd1pg/2025-fef-annual-letter-web.pdf';
 const MANUAL = 'https://www.fundsmith.co.uk/media/mv3abv1h/fef-owners-manual-a4-2025.pdf';
@@ -153,7 +154,7 @@ export default function Dashboard() {
   const keyMetrics: {id:MetricId; label:string}[] = [{id:'roce',label:'Return on capital'}, {id:'fcfYield',label:'Free cash flow yield'}, {id:'cashConversion',label:'Cash conversion'}];
 
   return <TooltipProvider delayDuration={150}>
-    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true">Q</span><span className="brand-name">Quality</span><span className="brand-caption">EQUITY RESEARCH</span></div><div className="source-label"><Database size={15} /><span>Yahoo Finance · delayed data</span></div></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true">V</span><span className="brand-name">Value</span><span className="brand-caption">QUALITY · PRICE · CONVICTION</span></div><div className="source-label"><Database size={15} /><span>Yahoo Finance · delayed data</span></div></header>
     <main className="workspace">
       <div className="search-row"><form className="ticker-form" onSubmit={submit}><label className="input-wrap"><Search size={18} /><span className="sr-only">Stock ticker symbol</span><input value={input} onChange={e=>setInput(e.target.value)} placeholder="Enter a ticker, e.g. MSFT or ULVR.L" autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={24} /></label><button className="primary-button" type="submit">Analyse <ArrowRight size={15} /></button></form><div className="quick-tickers"><span>Quick look</span>{QUICK.map(t => <button key={t} onClick={()=>chooseTicker(t)} className={symbol === t ? 'active' : ''} aria-pressed={symbol === t}>{t}</button>)}</div></div>
       {formError && <p className="inline-error" role="alert">{formError}</p>}
@@ -184,7 +185,8 @@ export default function Dashboard() {
           <div className="quality-note"><p>Look for businesses that sustain high returns on capital, turn profits into cash and have room to reinvest.</p><a href={MANUAL} target="_blank" rel="noreferrer">The thinking behind the metrics <ExternalLink size={12} style={{display:'inline',marginLeft:5}}/></a></div>
         </div>
       </div>
-      <footer className="app-footer"><span>Quality · Independent research tool. Not affiliated with Fundsmith or Yahoo.</span><span><a href={'https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'/'} target="_blank" rel="noreferrer">View {symbol} on Yahoo Finance</a> &nbsp; · &nbsp; <a href="https://ranaroussi.github.io/yfinance/" target="_blank" rel="noreferrer">Data-use notes</a></span></footer>
+      <ValuationWorkbench key={symbol + ':' + (year?.date || 'pending')} year={year} price={price} fx={activeFx} loading={priceLoading || fundLoading || fxLoading} />
+      <footer className="app-footer"><span>Value · Independent research tool. Not affiliated with the investors discussed, Fundsmith or Yahoo.</span><span><a href={'https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'/'} target="_blank" rel="noreferrer">View {symbol} on Yahoo Finance</a> &nbsp; · &nbsp; <a href="https://ranaroussi.github.io/yfinance/" target="_blank" rel="noreferrer">Data-use notes</a></span></footer>
     </main>
   </TooltipProvider>;
 }
