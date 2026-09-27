@@ -1,55 +1,130 @@
-# BTC Rebound Lab — paper trading
+# Poly Paper Lab — three BTC five-minute bots
 
-Python 3.12+ and a local browser dashboard. No third-party packages, API key, wallet or money required. Public Polymarket data only. This branch contains an independent project in `polymarket-btc-paper/`.
+A browser dashboard plus a persistent Python paper-trading collector. All three strategies observe the same public Polymarket books and keep independent balances. **No real orders, credentials, wallets or money.** Python 3.10+; standard library only, with no `pip` or Conda installation step.
 
-## Windows setup
+## Run on your Mac
 
-Install Python 3.12 or later from python.org and Git. In Command Prompt:
+In Terminal, for a fresh checkout:
+
+```sh
+git clone --branch codex/polymarket-five-minute-bots --single-branch https://github.com/cameronjmarshall/usdt-dashboard.git poly-five-minute
+cd poly-five-minute/polymarket-btc-paper
+python3 app.py
+```
+
+Open **http://127.0.0.1:8765** in your browser. Leave the Terminal running. A terminal that says the dashboard URL and then waits is normal: it is serving the dashboard and collecting data. Stop with Ctrl+C. For later runs, use `python3 app.py` from the same folder, or double-click `start-mac.command`.
+
+If you already have the repository locally, first save any uncommitted changes, then:
+
+```sh
+git fetch origin
+git switch codex/polymarket-five-minute-bots
+cd polymarket-btc-paper
+python3 app.py
+```
+
+## Run on Windows
 
 ```bat
-git clone --branch codex/polymarket-btc-paper --single-branch https://github.com/cameronjmarshall/usdt-dashboard.git btc-rebound
-cd btc-rebound\polymarket-btc-paper
+git clone --branch codex/polymarket-five-minute-bots --single-branch https://github.com/cameronjmarshall/usdt-dashboard.git poly-five-minute
+cd poly-five-minute\polymarket-btc-paper
 py -3 app.py
 ```
 
-Open http://127.0.0.1:8765. On subsequent runs, double-click `start-work-pc.cmd`. On macOS/Linux use `python3 app.py`. No pip install needed. Stop with Ctrl+C. Keep your PC awake and the process running; closing the browser does not stop collection. GitHub stores the code; GitHub Pages cannot run this Python collector. Continuous collection needs an always-on computer or server. Do not expose this unauthenticated local dashboard to the internet.
+Open the same URL. For later runs, double-click `start-work-pc.cmd`.
 
-## Exact experiment
-
-- Buy the first qualifying Up **or** Down outcome at an observed ask of 30 cents or less.
-- Entry eligible from the market start inclusive until start + 150 seconds exclusive.
-- Ten shares, at most one entry per market, no re-entry or second-side purchase.
-- Sell the entire position at an observed bid of 55 cents or more at any time after purchase, strictly before start + 300 seconds.
-- No stop loss or forced early exit. Unsold positions await confirmed official settlement.
-- Each simulated buy/sell needs two qualifying samples at least one second apart, no intervening failure, a maximum five-second observation gap, and enough size at the best price for all ten shares. This is a conservative liquidity screen, not a realistic queue simulator or guaranteed fill.
-- Ties between qualifying sides use the API outcome ordering; do not interpret this as a strategy advantage.
-- Fees explicitly **assume** `shares × 0.07 × price × (1-price)` on entry and target exit. This is the documented crypto schedule at development time, not automatically verified market-specific fees. No rebates or settlement exit fee. Ten shares bought at .30 and sold at .55 give $2.17975 net under this model.
-
-Change `CONFIG` in engine.py for a separate experiment and use `python app.py --db experiment-2.sqlite`. Existing databases reject changed settings to prevent silently mixing experiments.
-
-## Data and interpretation
-
-Gamma API discovers the current `btc-updown-5m-{UTC epoch start}` market and validates its identity, end time and Up/Down labels. Public CLOB REST order books are sampled approximately every second plus network latency; requests taking over three seconds are rejected. Quote timestamps must be within five seconds of receipt. A market with unchanged old snapshots may be skipped. Keep your system clock synchronized.
-
-The SQLite database stores market metadata/rules, accepted bid/ask observations and sizes, experiment settings, and trades. Restart recovery prevents duplicate entries. Market metadata is retained because resolution rules can change. Settlement requires Gamma `closed=true`, `umaResolutionStatus=resolved` and exact binary outcome prices. If those fields are unavailable or change, positions stay pending rather than assigning a winner from a quote or another BTC feed.
-
-This is a forward paper recorder, **not a historical backtest**. REST sampling misses brief moves. Quote availability, the confirmation delay, competition, fees and latency can make actual outcomes different. Data gaps are not reconstructed; pending positions and failed rebounds must remain in analysis. Target-hit count uses closed trades as denominator, with open/pending shown separately; it is not a settled strategy estimate while pending trades remain. Realised P&L excludes open exposure. No BTC spot-volatility model, confidence interval, drawdown analysis, WebSocket recorder or live execution is included in v1.
-
-Read-only dashboard updates every two seconds. Export the ledger using the CSV link. Back up `paper.sqlite` while the app is stopped; do not commit research data to this public repository. The observation database grows with runtime. View existing results without network access with `python app.py --offline`.
-
-## Validation
+## Try the dashboard with generated scenarios
 
 ```sh
-python -m unittest -v
+python3 app.py --demo
 ```
 
-Tests cover entry cutoff, sale eligibility until expiry, liquidity, fee math, settlement, stale observation gaps, and restart deduplication. Live connectivity depends on network and API availability; any error is displayed instead of fabricated market data.
+On Windows: `py -3 app.py --demo`, or double-click `start-demo.cmd`. On Mac you can also run `./start-mac.command --demo`. Stop the live process before running demo on the same port, or add `--port 8766`.
 
-## API references
+Demo runs at 10× speed by default (one five-minute round takes about 30 seconds). `--demo-speed 1` uses normal speed. A prominent **SYNTHETIC DEMO** banner identifies generated data, which is stored separately. It exercises target exits, reversals, settlement and the second entry window; its P&L is not evidence of profitability. Demo never connects to Polymarket, and live failures never fall back silently to generated data.
 
-- https://docs.polymarket.com/api-reference/markets/get-market-by-slug
-- https://docs.polymarket.com/market-data/prices-orderbook
-- https://docs.polymarket.com/market-data/realtime-data
-- https://docs.polymarket.com/trading/fees
+## Exact strategy rules
 
-For a more precise second phase, replace sampled books with a WebSocket recorder and replay recorded depth with measured execution latency. Keep the paper engine separate from any future order execution adapter.
+All prices are outcome-share prices in US dollars: 35 means 35¢, not BTC's spot price. Elapsed time is measured from the five-minute market's scheduled UTC epoch start, not from when the application launches.
+
+| Bot | Eligible buying window | Buy limit | Sell target |
+| --- | --- | --- | --- |
+| 1 | 0:00 inclusive to 2:30 exclusive | 35¢ or less | 70¢ or more |
+| 2 | 0:00 inclusive to 2:30 exclusive | 35¢ or less | 85¢ or more |
+| 3 | 0:00 inclusive to 2:00 exclusive | 40¢ or less | 60¢ or more |
+| 3 | 2:00 inclusive to 3:00 exclusive | 45¢ or less | 60¢ or more |
+
+- All bots may sell after their buying windows close, strictly before 5:00. No forced midpoint sale or stop loss.
+- Shares still held at expiry stay pending until official resolution. Winning shares redeem at $1 and losing shares at $0. Settlement has no simulated exit fee.
+- Default: both Up and Down are eligible, with **one open position per bot across all markets**. An unresolved position blocks that bot from entering the next round. The cheapest eligible outcome is selected; an exact tie uses alphabetical outcome name. There is no directional BTC forecast.
+- Re-entry is allowed after a full exit while the buying window remains open. There is no same-snapshot sell-and-rebuy. Use `--single-entry` for at most one entry per bot per round.
+- Each bot starts with $1,000 paper cash. Every entry budgets at most $10 **including entry fees**. Share quantity varies with the actual execution price. Trades require enough cash for the configured stake; no leverage or automatic top-ups.
+- **Pause entries** prevents new buys but continues recording, target exits and settlement. The pause setting survives a restart.
+
+## Change the experiment size
+
+```sh
+python3 app.py --stake 25 --bankroll 2000 --side Up --single-entry --db up-only.sqlite
+```
+
+`--side` accepts `both`, `Up`, or `Down`. Stakes and bankrolls are dollars, per bot. A fresh `--db` file starts a separate experiment. Existing databases remember their settings; launching with incompatible settings is rejected. Restart an experiment with `python3 app.py --db up-only.sqlite`. The three strategies are fixed in `engine.py`; changing rules requires a version bump and a new experiment database.
+
+## Fill and fee model
+
+This tests marketable **taker** execution when observed executable prices meet the thresholds, not a resting limit-order queue.
+
+1. Public CLOB order books for both tokens are requested concurrently, approximately once per second plus network latency. Both books must be valid before any bot evaluates the observation.
+2. A signal must remain eligible across two observations at least one second apart, with no intervening invalid/missed observation and no gap over five seconds. A change in Bot 3's buy threshold restarts confirmation. This confirmation screen is an approximation of execution delay, not an exchange latency model.
+3. Each buy consumes asks from cheapest upwards, never above the bot's buy limit. Each sale consumes bids from highest downwards, never below its target. The entire stake or position must fit in the observed depth; insufficient depth means no fill, rather than an invented full or partial fill. VWAP reflects the displayed depth. Rounding reserves a tiny unused amount of entry cash.
+4. Both the book minimum share size and Gamma's documented minimum notional screen entries. The default $10 stake clears ordinary minimums; very small stakes can produce no fills. Exit depth must cover all shares.
+5. Fees use the market's Gamma `feeSchedule` or CLOB `fd` metadata. If unavailable, the **explicitly labelled assumption** is the documented crypto curve: `shares × 0.07 × price × (1-price)`. General metadata uses `shares × rate × [price × (1-price)]^exponent`. Fees are rounded to five decimals at each consumed price level. Entry fees are charged against the paper dollar budget (a cash-equivalent accounting approximation); actual fee denomination/rounding can differ. No maker rebates or taker rebates are assumed.
+6. Each bot independently sees the same original depth. These are counterfactual comparisons; their results must not be treated as one jointly executable portfolio.
+
+REST sampling can miss fast crossings. Two snapshots cannot prove liquidity stayed available between them or after submission. Market impact, other traders, queue priority, partial fills and outages can change actual profitability. This is a **forward paper experiment**, not a historical backtest or an assurance of live returns.
+
+## Dashboard and saved results
+
+- Current market, countdown and Up/Down ask/bid chart. Hover over the chart for the recorded quotes.
+- Three bot cards: realised net P&L, return on initial bankroll, closed/entered trades, win rate, target exits, cash, fees and realised drawdown. Open exposure is displayed separately with stale marks identified.
+- Shared cumulative **realised** P&L chart; results only change when positions close. Win rate includes both target exits and official settlements and excludes still-open positions.
+- Open P&L and estimated equity use the last observed liquidation bids net of estimated fees. Uncovered depth is valued at zero for the remainder. These estimates become stale after five seconds and are not guaranteed sale values or official settlement values.
+- Drawdown is measured on closed-trade P&L, not intratrade marked equity. The chart shows the latest 800 exits per bot while retaining lifetime cumulative P&L; summary statistics cover the whole experiment.
+- Latest 500 trades with bot/status filters; **Export trades** downloads the full ledger. Full recorded order books can be exported under Experiment rules.
+- Latest 20 observed rounds. Markets with no open position do not require settlement queries, so some completed rounds remain labelled simply as closed rounds.
+
+`bots-live.sqlite` and `bots-demo.sqlite` are separate, local SQLite files. Each stores settings, market/fee metadata, observations, all entries/exits, feed errors and settlement evidence. A new file is used for this version; the old `paper.sqlite` is never overwritten or migrated. Database files are excluded from Git. Back up your database while the process is stopped. Run only one collector per database.
+
+To inspect results without collecting:
+
+```sh
+python3 app.py --offline --db bots-live.sqlite
+python3 app.py --offline --db bots-demo.sqlite
+```
+
+Changing/closing browser tabs does not stop collection. Closing the Python process, turning off the machine or sleeping it does; no missing market history is reconstructed. For unattended collection, keep a computer awake or run the application on an always-on machine. GitHub stores the code; GitHub Pages cannot run this Python collector. The app listens only on `127.0.0.1` and has no remote login feature.
+
+## Data quality and connection failures
+
+The adapter validates the `btc-updown-5m-{start}` slug, outcome-token mapping and exactly five-minute end time. It rejects slow responses (over three seconds), stale quotes (over five seconds), future timestamps (over one second), crossed books and incorrect token IDs. An empty ask side can still support an exit; an empty bid side cannot produce an invented exit.
+
+Keep your computer clock synchronized. Reconnection never executes old observations or retroactively catches up missed trades. A failed book pair clears pending signals. Metadata is refreshed every 30 seconds. Settlement checks run separately every 15 seconds so they do not block book polling; holdings require matching Gamma slug, `closed=true`, `umaResolutionStatus=resolved`, and exact binary outcome prices before settlement is recorded. If those fields are absent or the schema changes, positions remain pending and the dashboard says so.
+
+HTTP 403, rate limits, missing markets, certificate errors and other feed problems are shown in the status line. The collector retries; these errors do not generate simulated prices or fills. On macOS, a certificate verification error with a python.org Python installation can require its bundled **Install Certificates.command**. No package manager is needed to run this app.
+
+## Verification
+
+```sh
+python3 -m unittest -v
+```
+
+Tests cover the exact 2:00, 2:30, 3:00 and 5:00 boundaries; distinct bot targets; both outcome sides; ask/bid execution; depth/VWAP and fee math; re-entry; cash limits; paused entries with continuing exits; signal resets; stale/malformed data; official resolution; pending exposures; restart recovery; and experiment isolation.
+
+Live endpoint access from the build environment returned HTTP 403, so the live collector could not be exercised end to end there. The adapter is checked against official API formats and controlled fixtures; synthetic demo and local HTTP tests exercise the application without that access. Browser rendering could not be visually verified in the build environment because no local browser executable was available and the cloud browser blocked local-file previews. Local HTTP/CSV/control checks and JavaScript syntax checks passed. Verify that the dashboard says the public order books are connected when running on your machine before relying on a live observation sample.
+
+## Official API references
+
+- [Market discovery and metadata](https://docs.polymarket.com/market-data/market-details)
+- [CLOB order book](https://docs.polymarket.com/api-reference/market-data/get-order-book)
+- [CLOB fee configuration](https://docs.polymarket.com/api-reference/markets/get-clob-market-info)
+- [Fee curve](https://docs.polymarket.com/trading/fees)
+- [Order lifecycle and taker delays](https://docs.polymarket.com/concepts/order-lifecycle)

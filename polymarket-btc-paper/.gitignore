@@ -3,3 +3,6 @@ __pycache__/
 *.sqlite-*
 *.db
 .venv/
+*.csv
+*.log
+.DS_Store
