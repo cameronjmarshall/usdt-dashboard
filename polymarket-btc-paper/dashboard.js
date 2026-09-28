@@ -98,13 +98,14 @@ function renderPnl(){
 function renderBots(){
   $('bot-cards').innerHTML=state.bots.map(b=>{
     const p=b.position, bot=b.bot, limit=limitFor(bot,elapsed());
-    let status=p?(p.awaiting_settlement?'AWAITING RESULT':'POSITION OPEN'):state.paused?'ENTRIES PAUSED':elapsed()>=300?'NEXT MARKET':limit==null?'EXITS ONLY':'WATCHING';
+    let status=p?(p.awaiting_settlement?'AWAITING RESULT':'POSITION OPEN'):state.paused?'ENTRIES PAUSED':b.cash<state.config.stake?'LOW CASH':elapsed()>=300?'NEXT MARKET':limit==null?'EXITS ONLY':'WATCHING';
     if(state.config.offline)status='SAVED RESULTS';
     else if(!fresh()&&!p)status='WAITING FOR FEED';
     const rules=bot.id===3?'<strong>40¢</strong> before 2:00 · <strong>45¢</strong> from 2:00–3:00<br>Sell at <strong>60¢</strong> until expiry':`Buy <strong>35¢</strong> before 2:30<br>Sell at <strong>${Math.round(bot.target*100)}¢</strong> until expiry`;
-    const position=p?`${esc(p.side)} · ${p.shares.toFixed(2)} shares @ ${cents(p.entry)} · ${p.awaiting_settlement?'Awaiting settlement · ':''}Open P&L ${signed(b.unrealised)}${p.stale?' · <em>stale mark</em>':''}`:'No open position · ready for the next qualifying entry';
+    const position=p?`${esc(p.side)} · ${p.shares.toFixed(2)} shares @ ${cents(p.entry)} · ${p.awaiting_settlement?'Awaiting settlement · ':''}Open P&L ${signed(p.unrealised)}${p.stale?' · <em>stale mark</em>':''}`:b.cash<state.config.stake?`Available cash ${money(b.cash)} is below the ${money(state.config.stake)} entry budget.`:'No position in this market · watching for a qualifying entry';
+    const pendingText=b.pending_settlements?`${b.pending_settlements} awaiting settlement · ${money(b.reserved)} reserved across all open positions. New rounds can trade using available cash.`:'';
     const win=b.closed?`${(b.wins/b.closed*100).toFixed(1)}%`:'—';
-    return `<article class="bot-card bot-card-${bot.id}"><div class="bot-top"><span class="bot-name"><i class="dot"></i>${bot.name}</span><span class="bot-state">${status}</span></div><div class="bot-rules">${rules}</div><div class="bot-pnl"><strong class="${signClass(b.realised)}">${signed(b.realised)}</strong><span class="${signClass(b.return_pct)}">${b.return_pct>0?'+':''}${b.return_pct.toFixed(2)}%</span></div><div class="bot-pnl-label">REALISED P&L / STARTING BALANCE</div><div class="bot-metrics"><div><span>Closed / entries</span><strong>${b.closed} / ${b.entries}</strong></div><div><span>Win rate</span><strong>${win}</strong></div><div><span>Target exits</span><strong>${b.targets}</strong></div><div><span>Cash available</span><strong>${money(b.cash)}</strong></div><div><span>Fees paid</span><strong>${money(b.fees)}</strong></div><div><span>Closed drawdown</span><strong>${money(b.max_drawdown)}</strong></div></div><div class="position-info">${position}</div></article>`;
+    return `<article class="bot-card bot-card-${bot.id}"><div class="bot-top"><span class="bot-name"><i class="dot"></i>${bot.name}</span><span class="bot-state">${status}</span></div><div class="bot-rules">${rules}</div><div class="bot-pnl"><strong class="${signClass(b.realised)}">${signed(b.realised)}</strong><span class="${signClass(b.return_pct)}">${b.return_pct>0?'+':''}${b.return_pct.toFixed(2)}%</span></div><div class="bot-pnl-label">REALISED P&L / STARTING BALANCE</div><div class="bot-metrics"><div><span>Closed / entries</span><strong>${b.closed} / ${b.entries}</strong></div><div><span>Win rate</span><strong>${win}</strong></div><div><span>Target exits</span><strong>${b.targets}</strong></div><div><span>Cash available</span><strong>${money(b.cash)}</strong></div><div><span>Fees paid</span><strong>${money(b.fees)}</strong></div><div><span>Closed drawdown</span><strong>${money(b.max_drawdown)}</strong></div></div><div class="position-info">${position}</div>${pendingText?`<div class="pending-positions">${pendingText}</div>`:""}</article>`;
   }).join('');
 }
 function renderTrades(){
@@ -118,7 +119,7 @@ function renderTrades(){
   $('trade-rows').innerHTML=rows.map(t=>{
     const closed=t.closed!=null;
     const botInfo=state.bots.find(b=>b.bot.id===t.bot);
-    const pending=!closed && botInfo?.position?.awaiting_settlement;
+    const pending=!closed && botInfo?.positions?.some(p=>p.id===t.id && p.awaiting_settlement);
     const label=closed?(t.reason==='target'?'Target exit':t.exit===1?'Settled win':'Settled loss'):(pending?'Awaiting result':'Open');
     const start=Number(t.slug.split('-').at(-1));
     return `<tr><td>${time(t.entered)}<small>${date(t.entered)} · ${shortTime(start)}–${shortTime(start+300)}</small></td><td><span class="trade-bot"><i class="dot bot${t.bot}"></i>Bot ${t.bot}</span></td><td class="${t.side==='Up'?'up':'down'}">${esc(t.side)}</td><td>${cents(t.entry)}</td><td>${closed?cents(t.exit):'—'}</td><td>${t.shares.toFixed(3)}</td><td>${money(t.entry_fee+(t.exit_fee||0))}</td><td><span class="trade-status ${closed?'':'pending'}">${label}</span></td><td class="right ${closed?signClass(t.pnl):''}">${closed?signed(t.pnl):'—'}</td></tr>`;
@@ -136,7 +137,7 @@ function render(){
   $('stake').textContent=money(c.stake);$('bankroll').textContent=money(c.bankroll);$('side-setting').textContent=c.side==='both'?'Up & Down':c.side;
   $('feed-message').textContent=state.status.message;
   $('pause').textContent=state.paused?'Resume entries':'Pause entries';$('pause').disabled=c.offline;
-  $('entry-policy').textContent=`One open position per bot · Re-entry ${c.reentry?'enabled':'disabled'}`;
+  $('entry-policy').textContent=`One position per bot per market · Re-entry ${c.reentry?'enabled':'disabled'}`;
   $('market-time').textContent=m?`${date(m.start)} · ${shortTime(m.start)} – ${shortTime(m.start+300)} · Your local time`:'Waiting for a market';
   $('market-link').classList.toggle('hidden',!m||c.mode==='demo');
   if(m&&c.mode==='live')$('market-link').href='https://polymarket.com/event/'+encodeURIComponent(m.slug);

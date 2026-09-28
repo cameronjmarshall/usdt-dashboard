@@ -15,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from engine import Book, DEFAULTS, Engine, snapshot
+from engine import Book, DEFAULTS, Engine, snapshot, upgrade_config
 
 ROOT = Path(__file__).resolve().parent
 STOP = threading.Event()
@@ -328,8 +328,8 @@ def main():
             exists = db.execute("SELECT name FROM sqlite_master WHERE name='settings'").fetchone()
             saved = db.execute('SELECT config FROM settings WHERE id=1').fetchone() if exists else None
         if saved:
-            config = json.loads(saved[0])
-            if config.get('version') != 2:
+            config = upgrade_config(json.loads(saved[0]))
+            if config.get('version') != DEFAULTS['version']:
                 parser.error('Older experiment format. Choose a new --db filename; your original results are preserved.')
     if not args.offline:
         config['mode'] = 'demo' if args.demo else 'live'

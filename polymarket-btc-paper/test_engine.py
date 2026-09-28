@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
-from engine import BOTS, Book, Engine, buy_fill, entry_limit, fee, snapshot
+from engine import BOTS, Book, Engine, buy_fill, entry_limit, fee, snapshot, upgrade_config
 from app import fee_schedule, official_winner, parse_book, validate_market
 
 
@@ -86,10 +86,58 @@ class StrategyTests(unittest.TestCase):
         self.buys();self.obs(1050,.9,.89);self.obs(1051,.9,.89);self.buys(at=1060)
         self.assertEqual(len(self.trades()),3)
 
-    def test_pending_round_blocks_next_entry(self):
+    def test_pending_round_allows_next_entry_with_reserved_cash(self):
+        self.buys();self.e.add_market('next',1300,{})
+        for at in (1301,1302):self.e.observe('next',books(at),at)
+        self.assertEqual(len(self.trades()),6)
+        for bot in (1,2,3):
+            self.assertEqual(len(self.trades(bot)),2)
+            self.assertAlmostEqual(self.e.cash(bot),980,places=3)
+        # Another opportunity in the same market cannot open a second position.
+        for at in (1303,1304):self.e.observe('next',books(at),at)
+        self.assertEqual(len(self.trades()),6)
+        s=snapshot(self.e.db,self.e.config,{'slug':'next'},1304)
+        for b in s['bots']:
+            self.assertEqual(len(b['positions']),2)
+            self.assertEqual(b['position']['slug'],'next')
+            self.assertEqual(b['pending_settlements'],1)
+            self.assertAlmostEqual(b['reserved'],20,places=3)
+            self.assertAlmostEqual(b['cash'],self.e.cash(b['bot']['id']))
+            self.assertAlmostEqual(b['equity'],b['cash']+sum(p['mark'] for p in b['positions']))
+        self.e.settle('m',1305,'Down')
+        s=snapshot(self.e.db,self.e.config,{'slug':'next'},1305)
+        for b in s['bots']:
+            self.assertEqual(b['position']['slug'],'next')
+            self.assertEqual(len(b['positions']),1)
+            self.assertEqual(b['pending_settlements'],0)
+            self.assertAlmostEqual(b['reserved'],10,places=3)
+            self.assertAlmostEqual(b['cash'],980,places=3)
+        self.assertFalse(self.e.settle('m',1306,'Down'))
+
+    def test_prior_settlement_does_not_clear_new_market_signal(self):
+        self.buys();self.e.add_market('next',1300,{})
+        self.e.observe('next',books(1301),1301)
+        self.e.settle('m',1301.5,'Down')
+        self.e.observe('next',books(1302),1302)
+        self.assertEqual(len(self.trades()),6)
+        self.assertTrue(all(t['closed'] is None for t in self.trades() if t['slug']=='next'))
+
+    def test_pending_stake_cannot_be_spent_again(self):
+        self.e.config['bankroll']=10
         self.buys();self.e.add_market('next',1300,{})
         for at in (1301,1302):self.e.observe('next',books(at),at)
         self.assertEqual(len(self.trades()),3)
+        self.e.settle('m',1303,'Up')
+        for at in (1304,1305):self.e.observe('next',books(at),at)
+        self.assertEqual(len(self.trades()),6)
+        self.assertGreater(self.e.cash(1),0)
+
+    def test_old_positions_do_not_receive_current_market_exits(self):
+        self.buys();self.e.add_market('next',1300,{})
+        for at in (1301,1302):self.e.observe('next',books(at),at)
+        for at in (1303,1304):self.e.observe('next',books(at,.90,.89),at)
+        self.assertTrue(all(t['closed'] is None for t in self.trades() if t['slug']=='m'))
+        self.assertTrue(all(t['reason']=='target' for t in self.trades() if t['slug']=='next'))
 
     def test_ask_not_midpoint(self):
         self.buys(.37,bid=.30)
@@ -173,6 +221,48 @@ class StrategyTests(unittest.TestCase):
             self.assertAlmostEqual(e.cash(1),990,places=3);e.settle('m',1300,'Down');e.db.close()
             with self.assertRaises(ValueError):Engine(path,{'stake':20})
             with self.assertRaises(ValueError):Engine(path,{'mode':'demo'})
+
+    def test_upgrade_preserves_pending_positions_and_records_policy_change(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=str(Path(d)/'saved.sqlite');e=Engine(path);e.add_market('m',1000,{})
+            for at in (1001,1002):e.observe('m',books(at),at)
+            before=[dict(t) for t in e.db.execute('SELECT * FROM trades ORDER BY id')]
+            legacy=dict(e.config,version=2);legacy.pop('position_scope')
+            with e.db:
+                e.db.execute('UPDATE settings SET config=?',(json.dumps(legacy),))
+                e.db.execute('DROP INDEX one_position_per_market')
+                e.db.execute('CREATE UNIQUE INDEX one_position ON trades(bot) WHERE closed IS NULL')
+            e.db.close()
+            # The normal launcher upgrades saved settings, including custom sizing.
+            upgraded=upgrade_config(legacy)
+            e=Engine(path,upgraded)
+            self.assertEqual([dict(t) for t in e.db.execute('SELECT * FROM trades ORDER BY id')],before)
+            self.assertEqual(e.db.execute("SELECT COUNT(*) FROM events WHERE kind='upgrade'").fetchone()[0],1)
+            self.assertEqual(json.loads(e.db.execute('SELECT config FROM settings').fetchone()[0])['version'],3)
+            e.add_market('next',1300,{})
+            for at in (1301,1302):e.observe('next',books(at),at)
+            e.db.close();e=Engine(path,upgraded)
+            self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE closed IS NULL').fetchone()[0],6)
+            self.assertAlmostEqual(e.cash(1),980,places=3)
+            self.assertEqual(e.db.execute("SELECT COUNT(*) FROM events WHERE kind='upgrade'").fetchone()[0],1)
+            for at in (1303,1304):e.observe('next',books(at),at)
+            self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades').fetchone()[0],6)
+            e.db.close()
+
+    def test_upgrade_does_not_allow_sizing_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=str(Path(d)/'saved.sqlite');e=Engine(path,{'stake':25,'bankroll':2000,'side':'Down'})
+            legacy=dict(e.config,version=2);legacy.pop('position_scope')
+            with e.db:e.db.execute('UPDATE settings SET config=?',(json.dumps(legacy),))
+            e.db.close()
+            with self.assertRaises(ValueError):Engine(path,{'stake':50,'bankroll':2000,'side':'Down'})
+            with sqlite3.connect(path) as db:
+                self.assertEqual(json.loads(db.execute('SELECT config FROM settings').fetchone()[0]),legacy)
+            e=Engine(path,upgrade_config(legacy))
+            self.assertEqual(e.config['stake'],25)
+            self.assertEqual(e.config['bankroll'],2000)
+            self.assertEqual(e.config['side'],'Down')
+            e.db.close()
 
     def test_legacy_db_is_untouched(self):
         with tempfile.TemporaryDirectory() as d:
