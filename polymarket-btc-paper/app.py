@@ -1,5 +1,11 @@
-"""Local, paper-only Polymarket dashboard. Python 3.10+; no pip packages needed."""
+"""Shared, paper-only Polymarket dashboard. Python 3.10+; no pip packages needed."""
 import argparse
+import base64
+import hmac
+import os
+import signal
+import shutil
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 import csv
 from datetime import datetime
@@ -16,6 +22,8 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from engine import Book, DEFAULTS, Engine, snapshot, upgrade_config
+from research import dataset
+from services import initialize, start_job, runs, backup_worker, backup_status
 
 ROOT = Path(__file__).resolve().parent
 STOP = threading.Event()
@@ -109,6 +117,7 @@ def official_winner(m, slug):
 
 def collector(path, config):
     engine = Engine(path, config)
+    engine.event(time.time(), 'startup', 'Collector started; pending signals reset.')
     start_seen = None
     market = None
     last_refresh = last_error = 0
@@ -135,9 +144,11 @@ def collector(path, config):
                     status_update(message='Public order books connected', updated=now, connected=True, slug=market['slug'])
                 else:
                     engine.pending.clear()
+                    engine.event(now, 'feed_reset', 'Invalid observation; pending signals reset.')
                     status_update(message='Snapshot expired or market rolled over; waiting for fresh books.', connected=False)
             except Exception as exc:
                 engine.pending.clear()
+                engine.event(time.time(), 'feed_reset', 'Feed interrupted; pending signals reset.')
                 status_update(message=str(exc), connected=False)
                 if time.time()-last_error > 30:
                     engine.event(time.time(), 'feed', str(exc))
@@ -151,12 +162,15 @@ def collector(path, config):
 def settler(path, config):
     engine = Engine(path, config)
     while not STOP.is_set():
-        rows = engine.db.execute('''SELECT DISTINCT m.slug FROM markets m JOIN trades t USING(slug)
-            WHERE t.closed IS NULL AND m.start+300<=?''', (time.time(),)).fetchall()
+        rows = engine.db.execute('''SELECT m.slug FROM markets m LEFT JOIN resolution_checks r USING(slug)
+            WHERE m.winner IS NULL AND m.start+300<=?
+            ORDER BY COALESCE(r.checked,0),m.start LIMIT 20''', (time.time(),)).fetchall()
         for row in rows:
             if STOP.is_set():
                 break
             try:
+                with engine.db:
+                    engine.db.execute('INSERT OR REPLACE INTO resolution_checks VALUES(?,?)', (row['slug'],time.time()))
                 m = get('https://gamma-api.polymarket.com/markets/slug/' + row['slug'])
                 winner = official_winner(m, row['slug'])
                 if winner:
@@ -212,8 +226,35 @@ def demo_collector(path, config, speed):
     engine.db.close()
 
 
-def make_handler(path, config):
+def make_handler(path, config, password=None, public_origin=None):
     class Handler(BaseHTTPRequestHandler):
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(15)
+
+        def authorized(self):
+            if password is None:
+                return True
+            try:
+                scheme, token = self.headers.get('Authorization','').split(' ',1)
+                decoded = base64.b64decode(token, validate=True).decode('utf-8')
+                valid = scheme.lower() == 'basic' and hmac.compare_digest(decoded.encode(), ('cameron:'+password).encode())
+            except (ValueError, UnicodeError):
+                valid = False
+            if not valid:
+                self.send_response(401)
+                self.send_header('WWW-Authenticate', 'Basic realm="Poly Paper Lab", charset="UTF-8"')
+                self.send_header('Cache-Control','no-store')
+                self.send_header('Content-Length','0')
+                self.end_headers()
+            return valid
+
+        def valid_control(self):
+            allowed = [public_origin] if public_origin else [f'http://127.0.0.1:{self.server.server_port}', f'http://localhost:{self.server.server_port}']
+            origin = self.headers.get('Origin')
+            return (self.headers.get('Host') in [urlsplit(v).netloc for v in allowed]
+                    and (not origin or origin in allowed) and self.headers.get('X-Paper-Lab') == '1')
+
         def reply(self, body, kind='application/json', status=200, attachment=None):
             self.send_response(status)
             self.send_header('Content-Type', kind)
@@ -231,6 +272,31 @@ def make_handler(path, config):
 
         def do_GET(self):
             route = urlsplit(self.path).path
+            if route == '/healthz':
+                self.reply(b'{"ok":true}')
+                return
+            if not self.authorized():
+                return
+            if route == '/api/research':
+                self.reply(json.dumps(dict(dataset=dataset(path), runs=runs(path), backup=backup_status(path)), allow_nan=False).encode())
+                return
+            if route == '/backup.sqlite.gz':
+                files = sorted((Path(path).parent/'backups').glob('*.sqlite.gz'))
+                if not files:
+                    self.send_error(404, 'No completed backup yet')
+                    return
+                try:
+                    with files[-1].open('rb') as source:
+                        self.send_response(200)
+                        self.send_header('Content-Type','application/gzip')
+                        self.send_header('Content-Length',str(os.fstat(source.fileno()).st_size))
+                        self.send_header('Content-Disposition','attachment; filename="poly-backup.sqlite.gz"')
+                        self.send_header('Cache-Control','no-store')
+                        self.end_headers()
+                        shutil.copyfileobj(source,self.wfile)
+                except (BrokenPipeError, ConnectionResetError, FileNotFoundError):
+                    pass
+                return
             assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/dashboard.js': ('dashboard.js', 'text/javascript; charset=utf-8'),
                       '/style.css': ('style.css', 'text/css; charset=utf-8')}
             if route in assets:
@@ -273,17 +339,23 @@ def make_handler(path, config):
                 db.close()
 
         def do_POST(self):
-            # Read-only public APIs; only this loopback control changes paper entry eligibility.
+            if not self.authorized():
+                return
+            if not self.valid_control():
+                self.send_error(403)
+                return
+            if self.path == '/api/backtest':
+                try:
+                    size = int(self.headers.get('Content-Length','0'))
+                    if not 0 < size <= 8192:
+                        raise ValueError('Invalid request length')
+                    job_id = start_job(path, json.loads(self.rfile.read(size)))
+                    self.reply(json.dumps({'id':job_id}).encode(), status=202)
+                except (ValueError, TypeError) as exc:
+                    self.reply(json.dumps({'error':str(exc)}).encode(), status=400)
+                return
             if self.path != '/api/pause':
                 self.send_error(404)
-                return
-            origin = self.headers.get('Origin')
-            host = self.headers.get('Host')
-            if origin and origin not in (f'http://127.0.0.1:{self.server.server_port}', f'http://localhost:{self.server.server_port}'):
-                self.send_error(403)
-                return
-            if host not in (f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}') or self.headers.get('X-Paper-Lab') != '1':
-                self.send_error(403)
                 return
             if config.get('offline'):
                 self.send_error(403)
@@ -293,7 +365,7 @@ def make_handler(path, config):
                 if not 0 < size <= 256:
                     raise ValueError('Invalid request length')
                 data = json.loads(self.rfile.read(size))
-                if type(data.get('paused')) is not bool:
+                if not isinstance(data, dict) or type(data.get('paused')) is not bool:
                     raise ValueError('paused must be a boolean')
                 with sqlite3.connect(path, timeout=10) as db:
                     db.execute('UPDATE controls SET paused=? WHERE id=1', (int(data['paused']),))
@@ -309,7 +381,8 @@ def make_handler(path, config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--db', help='SQLite experiment file (default: bots-live.sqlite or bots-demo.sqlite)')
-    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT','8765')))
+    parser.add_argument('--host', default=os.environ.get('HOST','127.0.0.1'))
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--demo', action='store_true', help='Synthetic scenarios in a separate database')
     mode.add_argument('--offline', action='store_true', help='View saved results without collecting or filling')
@@ -321,7 +394,19 @@ def main():
     args = parser.parse_args()
     if not 0 < args.demo_speed <= 100:
         parser.error('--demo-speed must be between 0 and 100')
+    password = os.environ.get('PAPER_LAB_PASSWORD')
+    public_origin = os.environ.get('PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL')
+    if public_origin:
+        public_origin = public_origin.rstrip('/')
+        parsed = urlsplit(public_origin)
+        if parsed.scheme != 'https' or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
+            parser.error('PUBLIC_ORIGIN must be the exact HTTPS dashboard origin.')
+    if args.host not in ('127.0.0.1','localhost','::1'):
+        if not password or len(password) < 24 or not public_origin:
+            parser.error('Remote serving requires PAPER_LAB_PASSWORD (24+ characters) and PUBLIC_ORIGIN or RENDER_EXTERNAL_URL with HTTPS. Use a TLS reverse proxy.')
+    args.db = args.db or os.environ.get('PAPER_LAB_DB')
     path = str(Path(args.db).expanduser().resolve()) if args.db else str(ROOT/('bots-demo.sqlite' if args.demo else 'bots-live.sqlite'))
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     config = DEFAULTS.copy()
     if Path(path).exists():
         with sqlite3.connect(path) as db:
@@ -343,9 +428,14 @@ def main():
         e.db.close()
     except (ValueError, sqlite3.Error) as exc:
         parser.error(str(exc))
+    initialize(path)
     view_config = dict(config, offline=args.offline)
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(path, view_config))
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(path, view_config, password, public_origin))
+    signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     workers = []
+    backup_thread = threading.Thread(target=backup_worker, args=(path,STOP), daemon=True)
+    backup_thread.start()
+    workers.append(backup_thread)
     if args.offline:
         status_update(message='Offline · saved results only', connected=False)
     else:
@@ -368,3 +458,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

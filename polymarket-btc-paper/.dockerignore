@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!app.py
+!engine.py
+!research.py
+!services.py
+!index.html
+!dashboard.js
+!style.css

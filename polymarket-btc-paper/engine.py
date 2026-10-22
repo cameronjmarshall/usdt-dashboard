@@ -29,6 +29,31 @@ def finite(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+
+def validate_bots(bots):
+    if not isinstance(bots, list) or not 1 <= len(bots) <= 8:
+        raise ValueError('Choose between one and eight strategies.')
+    ids = set()
+    for bot in bots:
+        if not isinstance(bot, dict) or type(bot.get('id')) is not int or bot['id'] in ids:
+            raise ValueError('Strategies require unique integer IDs.')
+        ids.add(bot['id'])
+        if not isinstance(bot.get('name'), str) or not 1 <= len(bot['name']) <= 60:
+            raise ValueError('Strategy name must be 1–60 characters.')
+        if not finite(bot.get('target')) or not 0 < bot['target'] < 1:
+            raise ValueError('Sell target must be between 0 and 1.')
+        windows = bot.get('windows')
+        if not isinstance(windows, (list, tuple)) or not 1 <= len(windows) <= 4:
+            raise ValueError('Each strategy needs one to four entry windows.')
+        last = 0
+        for window in windows:
+            if not isinstance(window, (list, tuple)) or len(window) != 3:
+                raise ValueError('Entry windows need start, end and price.')
+            lo, hi, price = window
+            if not all(finite(v) for v in window) or not last <= lo < hi <= 300 or not 0 < price < 1:
+                raise ValueError('Entry windows must be ordered, non-overlapping and within five minutes.')
+            last = hi
+
 def fee(shares, price, rate, exponent=1.):
     return round(shares * rate * (price * (1-price)) ** exponent, 5)
 
@@ -113,6 +138,8 @@ class Engine:
             raise ValueError('Stake, bankroll and timing settings must be positive finite numbers.')
         if c['stake'] > c['bankroll'] or c['side'] not in ('both', 'Up', 'Down') or c['mode'] not in ('live', 'demo'):
             raise ValueError('Invalid experiment settings.')
+        self.bots = c.get('bots', BOTS)
+        validate_bots(self.bots)
         self.db = sqlite3.connect(path, timeout=10)
         self.db.row_factory = sqlite3.Row
         # Refuse the old schema before making any changes to it.
@@ -146,6 +173,12 @@ class Engine:
         CREATE INDEX IF NOT EXISTS trades_closed ON trades(bot,closed);
         CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL);
         ''')
+        columns = {r[1] for r in self.db.execute('PRAGMA table_info(observations)')}
+        for name in ('received_at', 'min_size'):
+            if name not in columns:
+                self.db.execute(f'ALTER TABLE observations ADD COLUMN {name} REAL')
+        self.db.execute('CREATE INDEX IF NOT EXISTS obs_time ON observations(at,slug,side)')
+        self.db.execute('CREATE INDEX IF NOT EXISTS events_time ON events(at)')
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
             self.db.execute('DROP INDEX IF EXISTS one_position')
@@ -193,9 +226,9 @@ class Engine:
         rate, exponent = market['fee_rate'], market['fee_exponent']
         with self.db:
             for side, book in books.items():
-                self.db.execute('INSERT INTO observations(slug,side,at,source_at,bid,ask,bids,asks) VALUES(?,?,?,?,?,?,?,?)',
-                                (slug, side, at, book.source_at, book.bid, book.ask, json.dumps(book.bids), json.dumps(book.asks)))
-            for bot in BOTS:
+                self.db.execute('INSERT INTO observations(slug,side,at,source_at,bid,ask,bids,asks,received_at,min_size) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                                (slug, side, at, book.source_at, book.bid, book.ask, json.dumps(book.bids), json.dumps(book.asks), book.at, book.min_size))
+            for bot in self.bots:
                 bot_id = bot['id']
                 trade = self.db.execute('SELECT * FROM trades WHERE bot=? AND slug=? AND closed IS NULL', (bot_id, slug)).fetchone()
                 action = side = result = None
@@ -270,7 +303,7 @@ def snapshot(db, config, status, now):
         market = db.execute('SELECT * FROM markets ORDER BY start DESC LIMIT 1').fetchone()
     market = dict(market) if market else None
     bots = []
-    for bot in BOTS:
+    for bot in config.get('bots', BOTS):
         bid = bot['id']
         summary = dict(db.execute('''SELECT COUNT(*) entries, COUNT(closed) closed,
             COALESCE(SUM(pnl),0) realised, COALESCE(SUM(pnl>0),0) wins,
@@ -322,3 +355,4 @@ def snapshot(db, config, status, now):
                 trades=[dict(r) for r in db.execute('SELECT * FROM trades ORDER BY entered DESC,id DESC LIMIT 500')],
                 history=history, totals=totals,
                 events=[dict(r) for r in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 15')])
+

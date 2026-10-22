@@ -198,3 +198,67 @@ document.querySelectorAll('.nav-link').forEach(link=>link.addEventListener('clic
   document.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));link.classList.add('active');
 }));
 refresh();setInterval(refresh,2000);setInterval(renderClock,250);
+
+
+let researchState=null, selectedRun=null, loadingResearch=false;
+const fullDate=n=>n==null?'—':new Date(n*1000).toLocaleString();
+function replayChart(bots){
+  const points=bots.flatMap(b=>b.curve),W=540,H=180,L=42,R=12,T=18,B=25;
+  if(!points.length)return '<p class="research-note">No closed trades in this period.</p>';
+  const low=Math.min(0,...points.map(p=>p.pnl)),high=Math.max(0,...points.map(p=>p.pnl));
+  const first=Math.min(...points.map(p=>p.at)),last=Math.max(...points.map(p=>p.at));
+  const x=t=>L+(t-first)/Math.max(1,last-first)*(W-L-R),y=v=>T+(high-v)/Math.max(1,high-low)*(H-T-B);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Closed trade cumulative P and L">`;
+  [low,high].forEach(v=>svg+=`<text class="axis-label" x="2" y="${y(v)}">${Math.round(v)}</text>`);
+  svg+=`<line class="grid" x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}"/>`;
+  bots.forEach(b=>{if(!b.curve.length)return;let d=`M${x(first)},${y(0)}`;b.curve.forEach(p=>d+=`H${x(p.at)}V${y(p.pnl)}`);svg+=`<path class="price-line" stroke="${esc(b.bot.color)}" d="${d}"/>`;});
+  return svg+'</svg>';
+}
+function showReplay(run){
+  selectedRun=run;
+  $('bt-export').classList.toggle('hidden',!run?.result);
+  if(!run){$('bt-results').innerHTML='';return;}
+  if(run.status!=='complete'){
+    $('bt-results').textContent=run.status==='failed'?`Experiment failed: ${run.error}`:'Replay in progress. You can leave this page and return later.';
+    return;
+  }
+  const r=run.result;
+  $('bt-results').innerHTML=`<p class="research-note">${r.mode==='demo'?'SYNTHETIC DEMO — not profitability evidence. ':''}Candidate: ${r.parameters.candidate.windows.map(w=>`${cents(w[2])} during ${w[0]}–${w[1]}s`).join('; ')} → ${cents(r.parameters.candidate.target)}. ${money(r.parameters.stake)} stake / ${money(r.parameters.bankroll)} starting cash per bot.</p><div class="replay-grid">${[['Development',r.training],['Later validation',r.holdout]].map(([name,p])=>`<article class="replay-period"><h3>${name}</h3><p class="research-note">${fullDate(p.start)} – ${fullDate(p.end)}</p>${replayChart(p.bots)}<div class="table-scroll"><table><thead><tr><th>Strategy</th><th>Net closed P&L</th><th>Closed / entries</th><th>Win rate</th><th>Drawdown</th><th>Reserved</th></tr></thead><tbody>${p.bots.map(b=>`<tr class="${b.bot.id===4?'candidate-row':''}"><td>${esc(b.bot.name)}</td><td class="${signClass(b.realised)}">${signed(b.realised)}</td><td>${b.closed} / ${b.entries}</td><td>${b.closed?(100*b.wins/b.closed).toFixed(1)+'%':'—'}</td><td>${money(b.max_drawdown)}</td><td>${money(b.reserved)}</td></tr>`).join('')}</tbody></table></div><p class="replay-quality">${p.markets} markets · ${p.snapshots.toLocaleString()} paired snapshots · ${p.gaps_over_5s} gaps over 5s · ${p.skipped} rejected snapshots<br>${p.unresolved} markets unresolved at period end · ${p.assumed_fee_markets} markets with assumed fees</p></article>`).join('')}</div><p class="research-note">${esc(r.method)}</p>`;
+}
+async function refreshResearch(){
+  if(loadingResearch)return;loadingResearch=true;
+  try{
+    const response=await fetch('/api/research',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    researchState=await response.json();
+    const d=researchState.dataset;
+    $('dataset-status').textContent=d.rows?`${d.markets} markets · ${Math.floor(d.rows/2).toLocaleString()} paired snapshots · ${fullDate(d.first)} to ${fullDate(d.last)} · ${(d.bytes/1024/1024).toFixed(1)} MB${d.legacy_rows?' · Older snapshots lack replay metadata; select newer dates.':''}`:'No price history yet. Keep the live collector running; backtesting needs at least two completed recorded markets.';
+    const b=researchState.backup;
+    $('backup-status').textContent=`Backup: ${b.available?fullDate(b.latest):'first backup pending'}. ${b.note}`;
+    const running=researchState.runs.some(r=>r.status==='running');$('bt-run').disabled=running;
+    $('bt-status').textContent=running?'Replaying recorded markets…':'Ready to test recorded history.';
+    const chosen=$('bt-history').value;
+    $('bt-history').innerHTML=researchState.runs.length?researchState.runs.map(r=>`<option value="${r.id}">#${r.id} · ${fullDate(r.created)} · ${r.status}</option>`).join(''):'<option value="">No experiments yet</option>';
+    if(researchState.runs.some(r=>String(r.id)===chosen))$('bt-history').value=chosen;
+    showReplay(researchState.runs.find(r=>String(r.id)===$('bt-history').value));
+  }catch(e){$('dataset-status').textContent='Cannot load recorded history: '+e.message;}
+  finally{loadingResearch=false;}
+}
+$('bt-history').addEventListener('change',()=>showReplay(researchState?.runs.find(r=>String(r.id)===$('bt-history').value)));
+$('backtest-form').addEventListener('submit',async event=>{
+  event.preventDefault();$('bt-run').disabled=true;
+  const num=id=>Number($(id).value),windows=[[num('bt-from'),num('bt-until'),num('bt-buy')/100]];
+  if($('bt-second').checked)windows.push([num('bt-until'),num('bt-until2'),num('bt-buy2')/100]);
+  const timestamp=id=>$(id).value?new Date($(id).value).getTime()/1000:null;
+  try{
+    const response=await fetch('/api/backtest',{method:'POST',headers:{'Content-Type':'application/json','X-Paper-Lab':'1'},body:JSON.stringify({candidate:{id:4,name:'Candidate',target:num('bt-sell')/100,windows},stake:num('bt-stake'),bankroll:num('bt-bankroll'),side:$('bt-side').value,reentry:$('bt-reentry').value==='yes',start:timestamp('bt-start'),end:timestamp('bt-end')})});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not start replay');
+    $('bt-history').value='';await refreshResearch();
+  }catch(e){$('bt-status').textContent=e.message;$('bt-run').disabled=false;}
+});
+$('bt-export').addEventListener('click',()=>{
+  if(!selectedRun?.result)return;
+  const url=URL.createObjectURL(new Blob([JSON.stringify(selectedRun,null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download=`poly-backtest-${selectedRun.id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+refreshResearch();setInterval(refreshResearch,10000);

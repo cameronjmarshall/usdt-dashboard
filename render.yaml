@@ -1,0 +1,26 @@
+# Review the paid service and disk charges in Render before creating resources.
+# One instance only: the web process also owns the collector.
+services:
+  - type: web
+    name: poly-paper-lab
+    runtime: docker
+    plan: starter
+    branch: codex/polymarket-cloud-research
+    dockerfilePath: ./polymarket-btc-paper/Dockerfile
+    dockerContext: ./polymarket-btc-paper
+    healthCheckPath: /healthz
+    autoDeployTrigger: off
+    numInstances: 1
+    disk:
+      name: poly-paper-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: PAPER_LAB_DB
+        value: /data/bots-live.sqlite
+      - key: PAPER_LAB_PASSWORD
+        generateValue: true
