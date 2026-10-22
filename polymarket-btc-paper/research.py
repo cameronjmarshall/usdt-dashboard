@@ -50,7 +50,7 @@ def dataset(path):
 
 def replay_segment(db, markets, start, end, params, mode):
     config = dict(DEFAULTS, mode=mode, stake=params['stake'], bankroll=params['bankroll'],
-                  side=params['side'], reentry=params['reentry'], bots=copy.deepcopy(BOTS)+[params['candidate']])
+                  side=params['side'], reentry=params['reentry'], bots=copy.deepcopy(BOTS[:3])+[params['candidate']])
     with tempfile.TemporaryDirectory(prefix='poly-replay-') as directory:
         engine = Engine(str(Path(directory)/'replay.sqlite'), config)
         try:

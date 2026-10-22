@@ -161,3 +161,18 @@ The cloud/research upgrade is verified with controlled fixtures for chronologica
 - [Fee curve](https://docs.polymarket.com/trading/fees)
 - [Order lifecycle and taker delays](https://docs.polymarket.com/concepts/order-lifecycle)
 
+
+
+### Bot 4: midpoint favourite trial
+
+Forward paper trial added alongside the original three bots, with its own balance.
+At the first valid paired snapshot crossing 150 seconds, buy the single side with
+ask strictly above 80 cents, spending $10 including fees using available ask depth.
+Hold until official settlement; no profit target, stop loss, or re-entry.
+The previous valid observation must precede 150 seconds by no more than the
+configured five-second gap; execution must be less than five seconds late.
+A missed checkpoint, paused collector, insufficient funds/depth, or no unique
+qualifying side skips the market permanently, including across restarts.
+Existing trades and settings are retained. No historical Bot 4 trades are invented.
+The custom backtest editor still compares its candidate with the original three
+strategies; the new midpoint strategy is currently a forward trial.

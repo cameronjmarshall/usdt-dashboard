@@ -24,6 +24,48 @@ class StrategyTests(unittest.TestCase):
     def trades(self,bot=None):
         return self.e.db.execute('SELECT * FROM trades'+(' WHERE bot=?' if bot else '')+' ORDER BY id',(bot,) if bot else ()).fetchall()
 
+    def test_midpoint_buys_once_and_holds(self):
+        self.obs(1149,.81)
+        self.assertFalse(self.trades(4))
+        self.obs(1150,.81)
+        trade=self.trades(4)[0]
+        self.assertEqual(trade['side'],'Up')
+        self.assertAlmostEqual(trade['cost']+trade['entry_fee'],10,places=3)
+        self.obs(1151,.99,.98);self.obs(1152,.99,.98)
+        self.assertIsNone(self.trades(4)[0]['closed'])
+        self.e.settle('m',1301,'Up')
+        self.assertEqual(self.trades(4)[0]['reason'],'settlement')
+        self.assertGreater(self.trades(4)[0]['pnl'],0)
+
+    def test_midpoint_strict_threshold_and_no_later_retry(self):
+        self.obs(1149,.80);self.obs(1150,.80);self.obs(1151,.85)
+        self.assertFalse(self.trades(4))
+
+    def test_midpoint_down_and_loss(self):
+        self.obs(1149,.10);self.obs(1150,.10)
+        self.assertEqual(self.trades(4)[0]['side'],'Down')
+        self.e.settle('m',1301,'Up')
+        self.assertAlmostEqual(self.trades(4)[0]['pnl'],-10,places=3)
+
+    def test_midpoint_skips_feed_gap(self):
+        self.obs(1140,.81);self.obs(1150,.81);self.obs(1151,.81)
+        self.assertFalse(self.trades(4))
+
+    def test_midpoint_skips_insufficient_depth(self):
+        self.obs(1149,.81);self.obs(1150,.81,size=1);self.obs(1151,.81)
+        self.assertFalse(self.trades(4))
+
+    def test_midpoint_skip_persists_after_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=str(Path(d)/'test.sqlite')
+            e=Engine(path);e.add_market('m',1000,{})
+            e.observe('m',books(1149,.80),1149)
+            e.observe('m',books(1150,.80),1150);e.db.close()
+            e=Engine(path)
+            e.observe('m',books(1151,.85),1151)
+            self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=4').fetchone()[0],0)
+            e.db.close()
+
     def test_exact_windows(self):
         for bot in BOTS[:2]:
             self.assertEqual(entry_limit(bot,149.999),.35);self.assertIsNone(entry_limit(bot,150))
@@ -97,7 +139,7 @@ class StrategyTests(unittest.TestCase):
         for at in (1303,1304):self.e.observe('next',books(at),at)
         self.assertEqual(len(self.trades()),6)
         s=snapshot(self.e.db,self.e.config,{'slug':'next'},1304)
-        for b in s['bots']:
+        for b in s['bots'][:3]:
             self.assertEqual(len(b['positions']),2)
             self.assertEqual(b['position']['slug'],'next')
             self.assertEqual(b['pending_settlements'],1)
@@ -106,7 +148,7 @@ class StrategyTests(unittest.TestCase):
             self.assertAlmostEqual(b['equity'],b['cash']+sum(p['mark'] for p in b['positions']))
         self.e.settle('m',1305,'Down')
         s=snapshot(self.e.db,self.e.config,{'slug':'next'},1305)
-        for b in s['bots']:
+        for b in s['bots'][:3]:
             self.assertEqual(b['position']['slug'],'next')
             self.assertEqual(len(b['positions']),1)
             self.assertEqual(b['pending_settlements'],0)
@@ -205,7 +247,7 @@ class StrategyTests(unittest.TestCase):
 
     def test_pending_equity_and_closed_drawdown(self):
         self.buys();s=snapshot(self.e.db,self.e.config,{'slug':'m'},1301)
-        for b in s['bots']:
+        for b in s['bots'][:3]:
             self.assertEqual(b['closed'],0);self.assertTrue(b['position']['awaiting_settlement'])
             self.assertTrue(b['position']['stale']);self.assertLess(b['unrealised'],0)
             self.assertAlmostEqual(b['cash']+b['position']['mark'],b['equity'])
@@ -300,3 +342,4 @@ class AdapterTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+

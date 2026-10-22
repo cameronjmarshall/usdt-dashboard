@@ -1,4 +1,4 @@
-"""Deterministic three-bot paper engine. No credentials or order submission."""
+"""Deterministic paper-bot paper engine. No credentials or order submission."""
 from dataclasses import dataclass
 import json
 import math
@@ -9,6 +9,8 @@ BOTS = [
     dict(id=1, name='Bot 1', target=.70, windows=[(0, 150, .35)], color='#58d5b0'),
     dict(id=2, name='Bot 2', target=.85, windows=[(0, 150, .35)], color='#a793f5'),
     dict(id=3, name='Bot 3', target=.60, windows=[(0, 120, .40), (120, 180, .45)], color='#f5bb6c'),
+    dict(id=4, name='Bot 4', target=1., windows=[(150, 155, .999999)],
+         checkpoint=150, above=.80, stake=10., hold=True, color='#8da9f7'),
 ]
 DEFAULTS = dict(version=3, position_scope='market', stake=10., bankroll=1000., side='both', reentry=True,
                 confirmation_seconds=1., max_gap_seconds=5., max_age_seconds=5., mode='live')
@@ -40,8 +42,10 @@ def validate_bots(bots):
         ids.add(bot['id'])
         if not isinstance(bot.get('name'), str) or not 1 <= len(bot['name']) <= 60:
             raise ValueError('Strategy name must be 1–60 characters.')
-        if not finite(bot.get('target')) or not 0 < bot['target'] < 1:
+        if not finite(bot.get('target')) or not (0 < bot['target'] < 1 or (bot.get('hold') is True and bot['target'] == 1)):
             raise ValueError('Sell target must be between 0 and 1.')
+        if 'checkpoint' in bot and (bot.get('checkpoint') != 150 or bot.get('above') != .80 or bot.get('stake') != 10 or bot.get('hold') is not True):
+            raise ValueError('Unsupported checkpoint strategy.')
         windows = bot.get('windows')
         if not isinstance(windows, (list, tuple)) or not 1 <= len(windows) <= 4:
             raise ValueError('Each strategy needs one to four entry windows.')
@@ -171,6 +175,7 @@ class Engine:
         CREATE UNIQUE INDEX IF NOT EXISTS one_position_per_market ON trades(bot,slug) WHERE closed IS NULL;
         CREATE INDEX IF NOT EXISTS trades_market ON trades(slug);
         CREATE INDEX IF NOT EXISTS trades_closed ON trades(bot,closed);
+        CREATE TABLE IF NOT EXISTS checkpoints(bot INTEGER NOT NULL, slug TEXT NOT NULL, at REAL NOT NULL, PRIMARY KEY(bot,slug));
         CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL);
         ''')
         columns = {r[1] for r in self.db.execute('PRAGMA table_info(observations)')}
@@ -230,6 +235,9 @@ class Engine:
                                 (slug, side, at, book.source_at, book.bid, book.ask, json.dumps(book.bids), json.dumps(book.asks), book.at, book.min_size))
             for bot in self.bots:
                 bot_id = bot['id']
+                if 'checkpoint' in bot:
+                    self._checkpoint(bot, market, books, at, previous, paused)
+                    continue
                 trade = self.db.execute('SELECT * FROM trades WHERE bot=? AND slug=? AND closed IS NULL', (bot_id, slug)).fetchone()
                 action = side = result = None
                 limit = entry_limit(bot, elapsed)
@@ -275,6 +283,36 @@ class Engine:
                 else:
                     self.pending[pending_key] = (signature, at)
         return True
+
+    def _checkpoint(self, bot, market, books, at, previous, paused):
+        """One decision at the first observed crossing; never chase a later signal."""
+        checkpoint = market['start'] + bot['checkpoint']
+        if at < checkpoint:
+            return
+        claimed = self.db.execute('INSERT OR IGNORE INTO checkpoints VALUES(?,?,?)',
+                                  (bot['id'], market['slug'], at)).rowcount
+        if not claimed or paused or previous is None or not previous < checkpoint <= at:
+            return
+        # A late start, missing feed, or restart must not manufacture a midpoint entry.
+        if at - previous > self.config['max_gap_seconds'] or at - checkpoint >= 5:
+            return
+        if self.cash(bot['id']) < bot['stake']:
+            return
+        if self.db.execute('SELECT 1 FROM trades WHERE bot=? AND slug=?', (bot['id'], market['slug'])).fetchone():
+            return
+        candidates = [(side, book) for side, book in books.items()
+                      if book.ask is not None and book.ask > bot['above']
+                      and self.config['side'] in ('both', side)]
+        if len(candidates) != 1:
+            return
+        side, book = candidates[0]
+        fill = buy_fill(book, bot['windows'][0][2], bot['stake'], market['fee_rate'], market['fee_exponent'])
+        minimum = float(json.loads(market['metadata']).get('orderMinSize') or 0.)
+        if fill is None or fill[1] < minimum:
+            return
+        shares, cost, charge = fill
+        self.db.execute('INSERT INTO trades(bot,slug,side,entered,entry,shares,cost,entry_fee,target) VALUES(?,?,?,?,?,?,?,?,?)',
+                        (bot['id'], market['slug'], side, at, cost/shares, shares, cost, charge, 1.))
 
     def _close(self, trade, at, gross, charge, reason):
         self.db.execute('''UPDATE trades SET closed=?,exit=?,proceeds=?,exit_fee=?,reason=?,pnl=?

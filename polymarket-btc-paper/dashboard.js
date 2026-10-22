@@ -24,7 +24,7 @@ function renderClock(){
   if(!state) return;
   const left = state.market ? Math.max(0, Math.ceil(state.market.start+300-currentNow())) : 300;
   $('countdown').textContent = `${String(Math.floor(left/60)).padStart(2,'0')}:${String(left%60).padStart(2,'0')}`;
-  $('phase').textContent = !state.market ? 'Awaiting quotes' : elapsed()>=300 ? 'Round ended · rolling over' : elapsed()>=180 ? 'All bots: exits only' : elapsed()>=150 ? 'Bot 3 can still buy' : elapsed()>=120 ? 'Bot 3 buy limit: 45¢' : 'All entry windows open';
+  $('phase').textContent = !state.market ? 'Awaiting quotes' : elapsed()>=300 ? 'Round ended · rolling over' : elapsed()>=180 ? 'All bots: exits only' : elapsed()>=150 ? 'Bot 4 midpoint check · Bot 3 can still buy' : elapsed()>=120 ? 'Bot 3 buy limit: 45¢' : 'All entry windows open';
   $('feed-light').classList.toggle('ok',fresh());
   const age=state.status.updated==null?null:Math.max(0,currentNow()-state.status.updated);
   $('feed-age').textContent = age==null ? 'No snapshots yet' : `Last quote ${Math.floor(age)}s ago`;
@@ -99,9 +99,10 @@ function renderBots(){
   $('bot-cards').innerHTML=state.bots.map(b=>{
     const p=b.position, bot=b.bot, limit=limitFor(bot,elapsed());
     let status=p?(p.awaiting_settlement?'AWAITING RESULT':'POSITION OPEN'):state.paused?'ENTRIES PAUSED':b.cash<state.config.stake?'LOW CASH':elapsed()>=300?'NEXT MARKET':limit==null?'EXITS ONLY':'WATCHING';
+    if(bot.checkpoint!=null && !p && !state.paused)status=elapsed()<150?'WAITING FOR 2:30':'CHECKPOINT PASSED';
     if(state.config.offline)status='SAVED RESULTS';
     else if(!fresh()&&!p)status='WAITING FOR FEED';
-    const rules=bot.id===3?'<strong>40¢</strong> before 2:00 · <strong>45¢</strong> from 2:00–3:00<br>Sell at <strong>60¢</strong> until expiry':`Buy <strong>35¢</strong> before 2:30<br>Sell at <strong>${Math.round(bot.target*100)}¢</strong> until expiry`;
+    const rules=bot.checkpoint!=null?'At <strong>2:30</strong>, buy ask <strong>above 80¢</strong> · $10<br>One attempt · hold to settlement':bot.id===3?'<strong>40¢</strong> before 2:00 · <strong>45¢</strong> from 2:00–3:00<br>Sell at <strong>60¢</strong> until expiry':`Buy <strong>35¢</strong> before 2:30<br>Sell at <strong>${Math.round(bot.target*100)}¢</strong> until expiry`;
     const position=p?`${esc(p.side)} · ${p.shares.toFixed(2)} shares @ ${cents(p.entry)} · ${p.awaiting_settlement?'Awaiting settlement · ':''}Open P&L ${signed(p.unrealised)}${p.stale?' · <em>stale mark</em>':''}`:b.cash<state.config.stake?`Available cash ${money(b.cash)} is below the ${money(state.config.stake)} entry budget.`:'No position in this market · watching for a qualifying entry';
     const pendingText=b.pending_settlements?`${b.pending_settlements} awaiting settlement · ${money(b.reserved)} reserved across all open positions. New rounds can trade using available cash.`:'';
     const win=b.closed?`${(b.wins/b.closed*100).toFixed(1)}%`:'—';
