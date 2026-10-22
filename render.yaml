@@ -9,7 +9,7 @@ services:
     dockerfilePath: ./polymarket-btc-paper/Dockerfile
     dockerContext: ./polymarket-btc-paper
     healthCheckPath: /healthz
-    autoDeployTrigger: off
+    autoDeployTrigger: "off"
     numInstances: 1
     disk:
       name: poly-paper-data
@@ -19,7 +19,7 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: PORT
-        value: 10000
+        value: "10000"
       - key: PAPER_LAB_DB
         value: /data/bots-live.sqlite
       - key: PAPER_LAB_PASSWORD
