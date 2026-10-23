@@ -66,6 +66,111 @@ class StrategyTests(unittest.TestCase):
             self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=4').fetchone()[0],0)
             e.db.close()
 
+    def test_capped_midpoint_exact_price_boundaries(self):
+        for ask,qualifies in ((.80,False),(.800001,True),(.85,True),(.90,True),(.900001,False),(.99,False)):
+            with self.subTest(ask=ask):
+                e=Engine(':memory:')
+                try:
+                    e.add_market('m',1000,{})
+                    e.observe('m',books(1149,ask),1149)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=5').fetchone()[0],0)
+                    e.observe('m',books(1150,ask),1150)
+                    rows=e.db.execute('SELECT * FROM trades WHERE bot=5').fetchall()
+                    self.assertEqual(len(rows),int(qualifies))
+                    if qualifies:
+                        self.assertEqual(rows[0]['side'],'Up')
+                        self.assertLessEqual(rows[0]['cost']+rows[0]['entry_fee'],10)
+                        self.assertAlmostEqual(rows[0]['cost']+rows[0]['entry_fee'],10,places=3)
+                        e.settle('m',1301,'Up')
+                        self.assertGreater(e.cash(5),1000)
+                finally:e.db.close()
+
+    def test_capped_midpoint_rejects_any_fill_level_above_cap(self):
+        self.obs(1149,.85)
+        pair=books(1150,.85)
+        pair['Up']=Book(1150,1150,((.84,1000),),((.85,10),(.91,1000)))
+        self.e.observe('m',pair,1150)
+        # The uncapped fill averages below 90 cents, but uses some 91-cent shares.
+        self.assertLess(self.trades(4)[0]['entry'],.90)
+        self.assertFalse(self.trades(5))
+        self.obs(1151,.85)
+        self.assertFalse(self.trades(5))
+
+    def test_capped_midpoint_fills_depth_up_to_cap(self):
+        self.obs(1149,.85)
+        pair=books(1150,.85)
+        pair['Up']=Book(1150,1150,((.84,1000),),((.85,10),(.90,1000)))
+        self.e.observe('m',pair,1150)
+        trade=self.trades(5)[0]
+        self.assertGreater(trade['entry'],.85)
+        self.assertLessEqual(trade['entry'],.90)
+        self.assertAlmostEqual(trade['cost']+trade['entry_fee'],10,places=3)
+
+    def test_capped_midpoint_down_holds_to_settlement(self):
+        self.obs(1149,.16);self.obs(1150,.16)
+        self.assertEqual(self.trades(5)[0]['side'],'Down')
+        self.obs(1190,.02);self.obs(1191,.02)
+        self.assertIsNone(self.trades(5)[0]['closed'])
+        self.e.settle('m',1301,'Up')
+        self.assertEqual(self.trades(5)[0]['reason'],'settlement')
+        self.assertAlmostEqual(self.trades(5)[0]['pnl'],-10,places=3)
+
+    def test_capped_midpoint_does_not_chase_lower_price(self):
+        self.obs(1149,.91);self.obs(1150,.91);self.obs(1151,.85)
+        self.assertEqual(len(self.trades(4)),1)
+        self.assertFalse(self.trades(5))
+
+    def test_capped_midpoint_execution_guards(self):
+        for reason in ('gap','late_start','paused','cash','minimum_shares','minimum_notional','ambiguous','stale'):
+            with self.subTest(reason=reason):
+                e=Engine(':memory:',{'stake':5.,'bankroll':5.} if reason=='cash' else None)
+                try:
+                    e.add_market('m',1000,{'orderMinSize':11} if reason=='minimum_notional' else {})
+                    if reason!='late_start':
+                        previous=1140 if reason=='gap' else 1149
+                        e.observe('m',books(previous,.85),previous)
+                    if reason=='paused':e.db.execute('UPDATE controls SET paused=1');e.db.commit()
+                    pair=books(1150,.85,source=1140 if reason=='stale' else 1150)
+                    if reason=='minimum_shares':pair['Up']=Book(1150,1150,((.84,1000),),((.85,1000),),100)
+                    if reason=='ambiguous':pair['Down']=Book(1150,1150,((.84,1000),),((.85,1000),))
+                    e.observe('m',pair,1150)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=5').fetchone()[0],0)
+                finally:e.db.close()
+
+    def test_capped_midpoint_attempt_persists_after_restart(self):
+        for ask,count in ((.85,1),(.91,0)):
+            with self.subTest(ask=ask),tempfile.TemporaryDirectory() as d:
+                path=str(Path(d)/'test.sqlite')
+                e=Engine(path);e.add_market('m',1000,{})
+                e.observe('m',books(1149,ask),1149);e.observe('m',books(1150,ask),1150)
+                e.db.close();e=Engine(path)
+                try:
+                    e.observe('m',books(1151,.85),1151)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=5').fetchone()[0],count)
+                finally:e.db.close()
+
+    def test_adding_capped_bot_preserves_ledger_without_backfill(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=str(Path(d)/'test.sqlite')
+            with patch('engine.BOTS',BOTS[:4]):
+                e=Engine(path);e.add_market('m',1000,{})
+                e.observe('m',books(1149,.85),1149);e.observe('m',books(1150,.85),1150)
+                before=[tuple(r) for r in e.db.execute('SELECT * FROM trades ORDER BY id')]
+                settings=e.db.execute('SELECT config FROM settings').fetchone()[0]
+                e.db.close()
+            e=Engine(path)
+            try:
+                self.assertEqual([tuple(r) for r in e.db.execute('SELECT * FROM trades ORDER BY id')],before)
+                self.assertEqual(e.db.execute('SELECT config FROM settings').fetchone()[0],settings)
+                new_bot=snapshot(e.db,e.config,{'slug':'m'},1151)['bots'][-1]
+                self.assertEqual((new_bot['bot']['id'],new_bot['entries'],new_bot['cash']),(5,0,1000))
+                e.observe('m',books(1151,.85),1151)
+                self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=5').fetchone()[0],0)
+                e.add_market('next',1300,{})
+                e.observe('next',books(1449,.85),1449);e.observe('next',books(1450,.85),1450)
+                self.assertEqual(e.db.execute('SELECT slug FROM trades WHERE bot=5').fetchone()[0],'next')
+            finally:e.db.close()
+
     def test_exact_windows(self):
         for bot in BOTS[:2]:
             self.assertEqual(entry_limit(bot,149.999),.35);self.assertIsNone(entry_limit(bot,150))
