@@ -162,13 +162,124 @@ class StrategyTests(unittest.TestCase):
             try:
                 self.assertEqual([tuple(r) for r in e.db.execute('SELECT * FROM trades ORDER BY id')],before)
                 self.assertEqual(e.db.execute('SELECT config FROM settings').fetchone()[0],settings)
-                new_bot=snapshot(e.db,e.config,{'slug':'m'},1151)['bots'][-1]
+                new_bot=next(b for b in snapshot(e.db,e.config,{'slug':'m'},1151)['bots'] if b['bot']['id']==5)
                 self.assertEqual((new_bot['bot']['id'],new_bot['entries'],new_bot['cash']),(5,0,1000))
                 e.observe('m',books(1151,.85),1151)
                 self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=5').fetchone()[0],0)
                 e.add_market('next',1300,{})
                 e.observe('next',books(1449,.85),1449);e.observe('next',books(1450,.85),1450)
                 self.assertEqual(e.db.execute('SELECT slug FROM trades WHERE bot=5').fetchone()[0],'next')
+            finally:e.db.close()
+
+    def test_bot6_price_boundaries_preserve_bot5_cap(self):
+        for ask,bot5_count,bot6_count in ((.80,0,0),(.800001,1,1),(.85,1,1),(.850001,1,0),(.90,1,0),(.900001,0,0)):
+            with self.subTest(ask=ask):
+                e=Engine(':memory:')
+                try:
+                    e.add_market('m',1000,{})
+                    e.observe('m',books(1149,ask),1149)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=6').fetchone()[0],0)
+                    e.observe('m',books(1150,ask),1150)
+                    for bot,count in ((5,bot5_count),(6,bot6_count)):
+                        self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=?',(bot,)).fetchone()[0],count)
+                    e.observe('m',books(1151,.83),1151)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=6').fetchone()[0],bot6_count)
+                finally:e.db.close()
+
+    def test_bot6_rejects_above_cap_depth_even_when_average_is_lower(self):
+        self.obs(1149,.81)
+        pair=books(1150,.81)
+        pair['Up']=Book(1150,1150,((.80,1000),),((.81,10),(.86,1000)))
+        self.e.observe('m',pair,1150)
+        self.assertLess(self.trades(5)[0]['entry'],.85)
+        self.assertFalse(self.trades(6))
+        self.obs(1151,.83)
+        self.assertFalse(self.trades(6))
+
+    def test_bot6_consumes_depth_at_cap_with_fixed_fee_inclusive_budget(self):
+        self.e.config['stake']=5.
+        self.obs(1149,.81)
+        pair=books(1150,.81)
+        pair['Up']=Book(1150,1150,((.80,1000),),((.81,10),(.85,1000),(.86,1000)))
+        self.e.observe('m',pair,1150)
+        trade=self.trades(6)[0]
+        self.assertGreater(trade['entry'],.81)
+        self.assertLessEqual(trade['entry'],.85)
+        self.assertLessEqual(trade['cost']+trade['entry_fee'],10)
+        self.assertAlmostEqual(trade['cost']+trade['entry_fee'],10,places=3)
+        self.assertAlmostEqual(self.e.cash(6),990,places=3)
+
+    def test_bot6_holds_both_sides_and_accounts_for_settlement(self):
+        for side in ('Up','Down'):
+            for winner in ('Up','Down'):
+                with self.subTest(side=side,winner=winner):
+                    e=Engine(':memory:')
+                    try:
+                        e.add_market('m',1000,{})
+                        for at in (1149,1150):e.observe('m',books(at,.83,side=side),at)
+                        for at in (1190,1191):e.observe('m',books(at,.99,side=side),at)
+                        trade=e.db.execute('SELECT * FROM trades WHERE bot=6').fetchone()
+                        self.assertEqual(trade['side'],side)
+                        self.assertIsNone(trade['closed'])
+                        e.settle('m',1301,winner)
+                        trade=e.db.execute('SELECT * FROM trades WHERE bot=6').fetchone()
+                        self.assertEqual(trade['reason'],'settlement')
+                        self.assertEqual(trade['exit'],float(side==winner))
+                        self.assertAlmostEqual(e.cash(6),1000+trade['pnl'])
+                        if side==winner:self.assertGreater(trade['pnl'],0)
+                        else:self.assertAlmostEqual(trade['pnl'],-10,places=3)
+                    finally:e.db.close()
+
+    def test_bot6_execution_guards(self):
+        for reason in ('gap','late_start','late_crossing','paused','cash','minimum_shares','minimum_notional','ambiguous','stale','depth'):
+            with self.subTest(reason=reason):
+                e=Engine(':memory:',{'stake':5.,'bankroll':5.} if reason=='cash' else None)
+                try:
+                    e.add_market('m',1000,{'orderMinSize':11} if reason=='minimum_notional' else {})
+                    if reason!='late_start':
+                        previous=1140 if reason=='gap' else 1149
+                        e.observe('m',books(previous,.83),previous)
+                    if reason=='paused':e.db.execute('UPDATE controls SET paused=1');e.db.commit()
+                    at=1155 if reason=='late_crossing' else 1150
+                    pair=books(at,.83,source=1140 if reason=='stale' else at,size=1 if reason=='depth' else 1000)
+                    if reason=='minimum_shares':pair['Up']=Book(at,at,((.82,1000),),((.83,1000),),100)
+                    if reason=='ambiguous':pair['Down']=Book(at,at,((.82,1000),),((.83,1000),))
+                    e.observe('m',pair,at)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=6').fetchone()[0],0)
+                finally:e.db.close()
+
+    def test_bot6_entry_and_skip_persist_after_restart(self):
+        for ask,count in ((.85,1),(.86,0)):
+            with self.subTest(ask=ask),tempfile.TemporaryDirectory() as d:
+                path=str(Path(d)/'test.sqlite')
+                e=Engine(path);e.add_market('m',1000,{})
+                e.observe('m',books(1149,ask),1149);e.observe('m',books(1150,ask),1150)
+                e.db.close();e=Engine(path)
+                try:
+                    e.observe('m',books(1151,.83),1151)
+                    self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=6').fetchone()[0],count)
+                finally:e.db.close()
+
+    def test_adding_bot6_preserves_five_bot_history_without_backfill(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=str(Path(d)/'test.sqlite')
+            with patch('engine.BOTS',BOTS[:5]):
+                e=Engine(path);e.add_market('m',1000,{})
+                e.observe('m',books(1149,.83),1149);e.observe('m',books(1150,.83),1150)
+                before={table:[tuple(r) for r in e.db.execute('SELECT * FROM '+table)]
+                        for table in ('trades','settings','observations','markets','checkpoints')}
+                e.db.close()
+            e=Engine(path)
+            try:
+                for table,records in before.items():
+                    self.assertEqual([tuple(r) for r in e.db.execute('SELECT * FROM '+table)],records)
+                new_bot=next(b for b in snapshot(e.db,e.config,{'slug':'m'},1151)['bots'] if b['bot']['id']==6)
+                self.assertEqual((new_bot['entries'],new_bot['realised'],new_bot['cash']),(0,0,1000))
+                e.observe('m',books(1151,.83),1151)
+                self.assertEqual(e.db.execute('SELECT COUNT(*) FROM trades WHERE bot=6').fetchone()[0],0)
+                e.add_market('next',1300,{})
+                e.observe('next',books(1449,.83),1449);e.observe('next',books(1450,.83),1450)
+                self.assertEqual(e.db.execute('SELECT slug FROM trades WHERE bot=6').fetchone()[0],'next')
             finally:e.db.close()
 
     def test_exact_windows(self):

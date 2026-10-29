@@ -24,7 +24,7 @@ function renderClock(){
   if(!state) return;
   const left = state.market ? Math.max(0, Math.ceil(state.market.start+300-currentNow())) : 300;
   $('countdown').textContent = `${String(Math.floor(left/60)).padStart(2,'0')}:${String(left%60).padStart(2,'0')}`;
-  $('phase').textContent = !state.market ? 'Awaiting quotes' : elapsed()>=300 ? 'Round ended · rolling over' : elapsed()>=180 ? 'Bots 1–3: exits · Bots 4–5: hold' : elapsed()>=155 ? 'Midpoint checks complete · Bot 3 can buy' : elapsed()>=150 ? 'Bots 4–5 midpoint check · Bot 3 can buy' : elapsed()>=120 ? 'Bot 3 buy limit: 45¢' : 'Bots 1–3 buying · Bots 4–5 waiting';
+  $('phase').textContent = !state.market ? 'Awaiting quotes' : elapsed()>=300 ? 'Round ended · rolling over' : elapsed()>=180 ? 'Bots 1–3: exits · Bots 4–6: hold' : elapsed()>=155 ? 'Midpoint checks complete · Bot 3 can buy' : elapsed()>=150 ? 'Bots 4–6 midpoint check · Bot 3 can buy' : elapsed()>=120 ? 'Bot 3 buy limit: 45¢' : 'Bots 1–3 buying · Bots 4–6 waiting';
   $('feed-light').classList.toggle('ok',fresh());
   const age=state.status.updated==null?null:Math.max(0,currentNow()-state.status.updated);
   $('feed-age').textContent = age==null ? 'No snapshots yet' : `Last quote ${Math.floor(age)}s ago`;
@@ -103,8 +103,9 @@ function renderBots(){
     if(state.config.offline)status='SAVED RESULTS';
     else if(!fresh()&&!p)status='WAITING FOR FEED';
     const capped=bot.checkpoint!=null && bot.windows[0][2]<.99;
-    const checkpointPrice=capped?`<strong>80¢ &lt; ask ≤ ${Math.round(bot.windows[0][2]*100)}¢</strong>`:'ask <strong>above 80¢</strong>';
-    const rules=bot.checkpoint!=null?`At <strong>2:30</strong>, buy ${checkpointPrice} · $10 incl. fees<br>One attempt · hold to settlement${capped?'<br>90¢ cap on every fill · forward trial':''}`:bot.id===3?'<strong>40¢</strong> before 2:00 · <strong>45¢</strong> from 2:00–3:00<br>Sell at <strong>60¢</strong> until expiry':`Buy <strong>35¢</strong> before 2:30<br>Sell at <strong>${Math.round(bot.target*100)}¢</strong> until expiry`;
+    const capCents=Math.round(bot.windows[0][2]*100);
+    const checkpointPrice=capped?`<strong>80¢ &lt; ask ≤ ${capCents}¢</strong>`:'ask <strong>above 80¢</strong>';
+    const rules=bot.checkpoint!=null?`At <strong>2:30</strong>, buy ${checkpointPrice} · $10 incl. fees<br>One attempt · hold to settlement${capped?`<br>${capCents}¢ cap on every fill · forward trial`:''}`:bot.id===3?'<strong>40¢</strong> before 2:00 · <strong>45¢</strong> from 2:00–3:00<br>Sell at <strong>60¢</strong> until expiry':`Buy <strong>35¢</strong> before 2:30<br>Sell at <strong>${Math.round(bot.target*100)}¢</strong> until expiry`;
     const position=p?`${esc(p.side)} · ${p.shares.toFixed(2)} shares @ ${cents(p.entry)} · ${p.awaiting_settlement?'Awaiting settlement · ':''}Open P&L ${signed(p.unrealised)}${p.stale?' · <em>stale mark</em>':''}`:b.cash<(bot.stake??state.config.stake)?`Available cash ${money(b.cash)} is below the ${money(bot.stake??state.config.stake)} entry budget.`:bot.checkpoint!=null?(elapsed()<150?'No position · waiting for the 2:30 checkpoint':'No position · one checkpoint attempt per market'):'No position in this market · watching for a qualifying entry';
     const pendingText=b.pending_settlements?`${b.pending_settlements} awaiting settlement · ${money(b.reserved)} reserved across all open positions. New rounds can trade using available cash.`:'';
     const win=b.closed?`${(b.wins/b.closed*100).toFixed(1)}%`:'—';
@@ -140,7 +141,7 @@ function render(){
   $('stake').textContent=money(c.stake);$('bankroll').textContent=money(c.bankroll);$('side-setting').textContent=c.side==='both'?'Up & Down':c.side;
   $('feed-message').textContent=state.status.message;
   $('pause').textContent=state.paused?'Resume entries':'Pause entries';$('pause').disabled=c.offline;
-  $('entry-policy').textContent=`Bots 1–3: re-entry ${c.reentry?'enabled':'disabled'} · Bots 4–5: one attempt per market`;
+  $('entry-policy').textContent=`Bots 1–3: re-entry ${c.reentry?'enabled':'disabled'} · Bots 4–6: one attempt per market`;
   $('market-time').textContent=m?`${date(m.start)} · ${shortTime(m.start)} – ${shortTime(m.start+300)} · Your local time`:'Waiting for a market';
   $('market-link').classList.toggle('hidden',!m||c.mode==='demo');
   if(m&&c.mode==='live')$('market-link').href='https://polymarket.com/event/'+encodeURIComponent(m.slug);
@@ -149,7 +150,7 @@ function render(){
     $(id+'-ask').innerHTML=last?.ask!=null?`${(last.ask*100).toFixed(1)}<small>¢</small>`:'—';
     $(id+'-detail').textContent=last?`Buy ask · Sell bid ${cents(last.bid)}`:'Ask / bid unavailable';
   });
-  $('sizing-copy').textContent=`Each bot starts with ${money(c.bankroll)}. Bots 1–3 spend up to ${money(c.stake)} per entry; Bots 4–5 use $10.00. These budgets include fees. ${c.side==='both'?'Both Up and Down are eligible. Bots 1–3 choose the cheaper qualifying outcome; Bots 4–5 require exactly one side above 80¢.':c.side+' is the only eligible outcome.'} ${c.reentry?'Bots 1–3 can re-enter after exiting while their entry windows remain open.':'Bots 1–3 enter at most once per market.'} Bots 4–5 make only one checkpoint attempt per market.`;
+  $('sizing-copy').textContent=`Each bot starts with ${money(c.bankroll)}. Bots 1–3 spend up to ${money(c.stake)} per entry; Bots 4–6 use $10.00. These budgets include fees. ${c.side==='both'?'Both Up and Down are eligible. Bots 1–3 choose the cheaper qualifying outcome; Bots 4–6 require exactly one side above 80¢.':c.side+' is the only eligible outcome.'} ${c.reentry?'Bots 1–3 can re-enter after exiting while their entry windows remain open.':'Bots 1–3 enter at most once per market.'} Bots 4–6 make only one checkpoint attempt per market.`;
   $('fee-copy').textContent=m?`Current fee source: ${m.fee_source}. Fee = shares × ${m.fee_rate} × [price × (1 − price)]^${m.fee_exponent}. Rounded to five decimal places. Fees on entry and target exit; no settlement fee or rebates.`:'Fee metadata is loaded with each market. If unavailable, the documented crypto curve (rate 0.07, exponent 1) is used and labelled as assumed.';
   $('settlement-status').classList.toggle('hidden',!state.status.settlement_message);
   $('settlement-status').textContent=state.status.settlement_message||'';

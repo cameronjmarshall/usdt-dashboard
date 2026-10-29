@@ -13,6 +13,8 @@ BOTS = [
          checkpoint=150, above=.80, stake=10., hold=True, color='#8da9f7'),
     dict(id=5, name='Bot 5', target=1., windows=[(150, 155, .90)],
          checkpoint=150, above=.80, stake=10., hold=True, color='#ed9bc7'),
+    dict(id=6, name='Bot 6', target=1., windows=[(150, 155, .85)],
+         checkpoint=150, above=.80, stake=10., hold=True, color='#67cfe8'),
 ]
 DEFAULTS = dict(version=3, position_scope='market', stake=10., bankroll=1000., side='both', reentry=True,
                 confirmation_seconds=1., max_gap_seconds=5., max_age_seconds=5., mode='live')

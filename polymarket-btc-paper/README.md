@@ -1,6 +1,6 @@
 # Poly Paper Lab — shared dashboard and recorded-data research
 
-A mobile-friendly browser dashboard, persistent Python paper-trading collector, and recorded-order-book replay lab. All five live strategies observe the same public Polymarket books and keep independent balances. **No real orders, credentials, wallets or money.** Python 3.10+; standard library only, with no `pip` or Conda installation step.
+A mobile-friendly browser dashboard, persistent Python paper-trading collector, and recorded-order-book replay lab. All six live strategies observe the same public Polymarket books and keep independent balances. **No real orders, credentials, wallets or money.** Python 3.10+; standard library only, with no `pip` or Conda installation step.
 
 ## Run on your Mac
 
@@ -55,12 +55,13 @@ All prices are outcome-share prices in US dollars: 35 means 35¢, not BTC's spot
 | 3 | 2:00 inclusive to 3:00 exclusive | 45¢ or less | 60¢ or more |
 | 4 | One fresh checkpoint crossing 2:30 | Ask strictly above 80¢ | Hold to official settlement |
 | 5 | One fresh checkpoint crossing 2:30 | Ask strictly above 80¢, all fills at most 90¢ | Hold to official settlement |
+| 6 | One fresh checkpoint crossing 2:30 | Ask strictly above 80¢, all fills at most 85¢ | Hold to official settlement |
 
 - Bots 1–3 may sell after their buying windows close, strictly before 5:00. No forced midpoint sale or stop loss.
 - Shares still held at expiry stay pending until official resolution. Winning shares redeem at $1 and losing shares at $0. Settlement has no simulated exit fee.
-- Default: both Up and Down are eligible, with **one open position per bot per market**. A position awaiting settlement in an earlier round does not block entry in a new round. All open stakes, including likely losses, stay reserved until a target exit or official settlement; a new entry still needs enough available cash. Bots 1–3 select the cheapest eligible outcome; an exact tie uses alphabetical outcome name. Bots 4–5 require exactly one eligible side above 80¢. There is no directional BTC forecast.
-- For Bots 1–3, re-entry is allowed after a full exit while the buying window remains open. There is no same-snapshot sell-and-rebuy. Use `--single-entry` for at most one entry per bot per round. Bots 4–5 always make just one attempt per market.
-- Each bot starts with $1,000 paper cash. Every entry budgets at most $10 **including entry fees** by default. Bots 4–5 keep this fixed $10 budget even if `--stake` changes. Share quantity varies with the actual execution price. Trades require enough cash for the configured stake; no leverage or automatic top-ups.
+- Default: both Up and Down are eligible, with **one open position per bot per market**. A position awaiting settlement in an earlier round does not block entry in a new round. All open stakes, including likely losses, stay reserved until a target exit or official settlement; a new entry still needs enough available cash. Bots 1–3 select the cheapest eligible outcome; an exact tie uses alphabetical outcome name. Bots 4–6 require exactly one eligible side above 80¢. There is no directional BTC forecast.
+- For Bots 1–3, re-entry is allowed after a full exit while the buying window remains open. There is no same-snapshot sell-and-rebuy. Use `--single-entry` for at most one entry per bot per round. Bots 4–6 always make just one attempt per market.
+- Each bot starts with $1,000 paper cash. Every entry budgets at most $10 **including entry fees** by default. Bots 4–6 keep this fixed $10 budget even if `--stake` changes. Share quantity varies with the actual execution price. Trades require enough cash for the configured stake; no leverage or automatic top-ups.
 - **Pause entries** prevents new buys but continues recording, target exits and settlement. The pause setting survives a restart.
 
 ## Change the experiment size
@@ -69,7 +70,7 @@ All prices are outcome-share prices in US dollars: 35 means 35¢, not BTC's spot
 python3 app.py --stake 25 --bankroll 2000 --side Up --single-entry --db up-only.sqlite
 ```
 
-`--side` accepts `both`, `Up`, or `Down`. Stakes and bankrolls are dollars, per bot. A fresh `--db` file starts a separate experiment. Existing databases remember their settings; launching with incompatible settings is rejected. Restart an experiment with `python3 app.py --db up-only.sqlite`. The five live strategies remain fixed. The Backtesting form compares a custom candidate with those three baselines without changing the live engine or ledger.
+`--side` accepts `both`, `Up`, or `Down`. Stakes and bankrolls are dollars, per bot. A fresh `--db` file starts a separate experiment. Existing databases remember their settings; launching with incompatible settings is rejected. Restart an experiment with `python3 app.py --db up-only.sqlite`. The six live strategies remain fixed. The Backtesting form compares a custom candidate with those three baselines without changing the live engine or ledger.
 
 ## Fill and fee model
 
@@ -87,7 +88,7 @@ REST sampling can miss fast crossings. Two snapshots cannot prove liquidity stay
 ## Dashboard and saved results
 
 - Current market, countdown and Up/Down ask/bid chart. Hover over the chart for the recorded quotes.
-- Five bot cards: realised net P&L, return on initial bankroll, closed/entered trades, win rate, target exits, cash, fees and realised drawdown. The current-market position is shown separately from the count awaiting settlement. Available cash, reserved stakes and marked equity include every open position, with stale marks identified.
+- Six bot cards: realised net P&L, return on initial bankroll, closed/entered trades, win rate, target exits, cash, fees and realised drawdown. The current-market position is shown separately from the count awaiting settlement. Available cash, reserved stakes and marked equity include every open position, with stale marks identified.
 - Shared cumulative **realised** P&L chart; results only change when positions close. Win rate includes both target exits and official settlements and excludes still-open positions.
 - Open P&L and estimated equity use the last observed liquidation bids net of estimated fees. Uncovered depth is valued at zero for the remainder. These estimates become stale after five seconds and are not guaranteed sale values or official settlement values.
 - Drawdown is measured on closed-trade P&L, not intratrade marked equity. The chart shows the latest 800 exits per bot while retaining lifetime cumulative P&L; summary statistics cover the whole experiment.
@@ -200,3 +201,23 @@ timing and size identical to Bot 4 makes the effect of this cap easier to
 compare. Evaluate fees, realised P&L, unresolved exposure and losing streaks
 on future markets shared by both bots; lifetime totals have different start
 dates. The replay editor continues to compare candidates with Bots 1–3.
+
+### Bot 6: 85-cent midpoint cap trial
+
+Bot 6 runs alongside Bot 5 with its own $1,000 default paper balance and no
+historical trades. At the same single 150-second checkpoint, it requires
+**80¢ < best ask ≤ 85¢** and enough depth to spend $10 including entry fees
+without consuming any ask above **85¢ per share before fees**. Insufficient
+depth at the cap skips the market, even if an uncapped average fill would
+have been below 85¢.
+
+The freshness, timing, available-cash and minimum-order checks match Bots 4
+and 5. Bot 6 holds to official settlement, makes no later retry or re-entry,
+and preserves its entry or skip decision across restarts. Adding it retains
+all existing bot rules, settings and trade history.
+
+This cap is a hypothesis from the recorded trade analysis. Grouping past
+trades by average fill price is not a replay of a strict per-level cap and
+does not become Bot 6's realised profit. Compare new settled trades over
+matching market windows with Bot 5's 90-cent cap. The replay editor still
+compares its custom candidate with the original Bots 1–3.
